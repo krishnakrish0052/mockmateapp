@@ -8,7 +8,7 @@ class SpeechService extends EventEmitter {
     constructor() {
         super();
         this.aiService = new AIService();
-        this.aiService.setModel('phi'); // Using phi model (anonymous tier) for audio transcription
+        this.aiService.setModel('openai-audio');
     }
 
     async transcribe(audioData) {

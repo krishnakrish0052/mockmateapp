@@ -106,14 +106,14 @@ class AIService {
         try {
             const audioBase64 = audioBuffer.toString('base64');
 
-            // Using phi model (anonymous tier) for audio transcription
+            // Following Pollinations API documentation for openai-audio model
             const requestBody = {
-                model: 'phi', // Phi-4 Mini Instruct model supports audio on anonymous tier
+                model: 'openai-audio',
                 messages: [
                     {
                         role: 'user',
                         content: [
-                            { type: 'text', text: 'Please transcribe the following audio file accurately. Only return the transcribed text without any additional commentary:' },
+                            { type: 'text', text: 'Transcribe this audio:' },
                             {
                                 type: 'input_audio',
                                 input_audio: {
@@ -146,10 +146,10 @@ class AIService {
     }
 
     async transcribeAudioFallback(audioBuffer) {
-        console.log("Audio transcription fallback: Phi model audio processing failed, trying text-only approach.");
+        console.log("Audio transcription fallback: Text-based models cannot process audio data.");
         
-        // Return a helpful message since phi model should support audio but might have failed
-        const fallbackMessage = "I'm sorry, but I cannot transcribe audio at the moment. The Phi model audio processing encountered an issue. Please try again later or consider typing your question instead.";
+        // Return a helpful message instead of trying to send audio data to a text model
+        const fallbackMessage = "I'm sorry, but I cannot transcribe audio at the moment. The audio transcription service is currently unavailable. Please try again later or consider typing your question instead.";
         
         return {
             response: fallbackMessage,
@@ -157,7 +157,7 @@ class AIService {
             model: `fallback-${this.selectedModel}`,
             timestamp: new Date().toISOString(),
             confidence: 0, // No confidence since we cannot actually transcribe
-            error: 'Phi model audio processing failed'
+            error: 'Audio transcription service unavailable'
         };
     }
 
