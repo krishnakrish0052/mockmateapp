@@ -102,27 +102,57 @@ class AIService {
         }
     }
 
-    async transcribeAudio(audioBuffer) {
+    async transcribeAudio(audioBuffer, audioFormat = null) {
         try {
+            // Validate audio buffer
+            if (!audioBuffer || audioBuffer.length === 0) {
+                throw new Error('Invalid audio buffer: empty or null');
+            }
+            
             const audioBase64 = audioBuffer.toString('base64');
+            const audioSizeMB = (audioBase64.length * 0.75) / (1024 * 1024); // Approximate size in MB
+            
+            console.log(`AIService: Audio buffer size: ${audioSizeMB.toFixed(2)} MB`);
+            
+            // Check if audio is too large (limit to 10MB for API)
+            if (audioSizeMB > 10) {
+                console.warn(`Audio file too large: ${audioSizeMB.toFixed(2)} MB. API limit is typically 10MB.`);
+                return await this.transcribeAudioFallback(audioBuffer);
+            }
+            
+            // Detect audio format from buffer or use provided format
+            const detectedFormat = audioFormat || this.detectAudioFormat(audioBuffer);
+            console.log(`AIService: Detected/provided audio format: ${detectedFormat}`);
+            
+            // Validate format is supported
+            const supportedFormats = ['mp3', 'wav', 'm4a', 'flac', 'webm'];
+            if (!supportedFormats.includes(detectedFormat.toLowerCase())) {
+                console.warn(`Unsupported audio format: ${detectedFormat}. Supported formats: ${supportedFormats.join(', ')}`);
+                return await this.transcribeAudioFallback(audioBuffer);
+            }
             
             // Get STT model from environment variable, default to 'openai-audio'
             const sttModel = process.env.STT_MODEL || 'openai-audio';
             console.log(`AIService: Using STT model for transcription: ${sttModel}`);
 
+            // Ensure we're using the correct model for audio transcription
+            if (sttModel !== 'openai-audio') {
+                console.warn(`Model ${sttModel} may not support audio transcription. Switching to openai-audio.`);
+            }
+
             // Following Pollinations API documentation for audio transcription
             const requestBody = {
-                model: sttModel,
+                model: 'openai-audio', // Force use of openai-audio for transcription
                 messages: [
                     {
                         role: 'user',
                         content: [
-                            { type: 'text', text: 'Transcribe this audio:' },
+                            { type: 'text', text: 'Transcribe this:' }, // Simplified prompt as per docs
                             {
                                 type: 'input_audio',
                                 input_audio: {
                                     data: audioBase64,
-                                    format: 'wav' // Assuming WAV format, can be made dynamic
+                                    format: detectedFormat.toLowerCase()
                                 }
                             }
                         ]
@@ -130,23 +160,136 @@ class AIService {
                 ]
             };
 
+            console.log(`AIService: Sending transcription request with format: ${detectedFormat}`);
+            console.log(`AIService: Request payload structure:`, {
+                model: requestBody.model,
+                messageType: typeof requestBody.messages[0].content[1],
+                audioDataLength: audioBase64.length,
+                format: detectedFormat
+            });
+            
             const response = await axios.post(this.openaiEndpoint, requestBody, {
                 headers: this.getAuthHeaders(),
-                timeout: 30000, // 30 seconds timeout for transcription
+                timeout: 45000, // Increased timeout for larger files
+                maxContentLength: Infinity,
+                maxBodyLength: Infinity
             });
 
+            console.log(`AIService: Transcription successful with ${requestBody.model} model`);
             return this.formatResponse(response.data);
         } catch (error) {
             console.error('Audio transcription error:', error);
             
-            // Check if this is a tier/payment error (402)
+            // Log more detailed error information
+            if (error.response) {
+                console.error('Response status:', error.response.status);
+                console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+                console.error('Response headers:', error.response.headers);
+                
+                // Check for specific error messages
+                const errorDetails = error.response.data?.details?.error;
+                if (errorDetails) {
+                    console.error('API Error Details:', {
+                        message: errorDetails.message,
+                        type: errorDetails.type,
+                        param: errorDetails.param,
+                        code: errorDetails.code
+                    });
+                }
+            }
+            
+            // Check for specific error types
             if (error.response && error.response.status === 402) {
                 console.log('Audio model requires higher tier - attempting fallback');
                 return await this.transcribeAudioFallback(audioBuffer);
+            } else if (error.response && error.response.status === 400) {
+                const errorMsg = error.response.data?.details?.error?.message || '';
+                if (errorMsg.includes('format') || errorMsg.includes('unsupported')) {
+                    console.log('Unsupported format error - attempting format conversion fallback');
+                    return await this.transcribeAudioWithFormatFallback(audioBuffer);
+                } else {
+                    console.log('Bad request error - attempting fallback');
+                    return await this.transcribeAudioFallback(audioBuffer);
+                }
+            } else if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
+                console.log('Request timeout - attempting fallback');
+                return await this.transcribeAudioFallback(audioBuffer);
             }
             
-            throw new Error('Failed to transcribe audio: ' + error.message);
+            // For any other error, try fallback
+            console.log('Unknown transcription error - attempting fallback');
+            return await this.transcribeAudioFallback(audioBuffer);
         }
+    }
+
+    // Detect audio format from buffer magic bytes
+    detectAudioFormat(audioBuffer) {
+        try {
+            // Check magic bytes to detect audio format
+            const header = audioBuffer.subarray(0, 12);
+            
+            // WAV format: starts with "RIFF" and contains "WAVE"
+            if (header[0] === 0x52 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x46 &&
+                header[8] === 0x57 && header[9] === 0x41 && header[10] === 0x56 && header[11] === 0x45) {
+                return 'wav';
+            }
+            
+            // MP3 format: starts with "ID3" or has MP3 frame sync
+            if ((header[0] === 0x49 && header[1] === 0x44 && header[2] === 0x33) || // ID3
+                (header[0] === 0xFF && (header[1] & 0xE0) === 0xE0)) { // MP3 frame sync
+                return 'mp3';
+            }
+            
+            // M4A/AAC format: starts with ftyp box
+            if (header[4] === 0x66 && header[5] === 0x74 && header[6] === 0x79 && header[7] === 0x70) {
+                return 'm4a';
+            }
+            
+            // FLAC format: starts with "fLaC"
+            if (header[0] === 0x66 && header[1] === 0x4C && header[2] === 0x61 && header[3] === 0x43) {
+                return 'flac';
+            }
+            
+            // WebM format: starts with EBML header
+            if (header[0] === 0x1A && header[1] === 0x45 && header[2] === 0xDF && header[3] === 0xA3) {
+                return 'webm';
+            }
+            
+            // Default to WAV if format cannot be detected
+            console.warn('Could not detect audio format from buffer, defaulting to WAV');
+            return 'wav';
+        } catch (error) {
+            console.error('Error detecting audio format:', error);
+            return 'wav'; // Safe default
+        }
+    }
+
+    // Fallback method for format conversion attempts
+    async transcribeAudioWithFormatFallback(audioBuffer) {
+        console.log('Attempting transcription with different format assumptions...');
+        
+        // Try different common formats
+        const formatsToTry = ['wav', 'mp3', 'm4a'];
+        
+        for (const format of formatsToTry) {
+            try {
+                console.log(`Trying transcription with format: ${format}`);
+                const result = await this.transcribeAudio(audioBuffer, format);
+                
+                // If we get a successful result (not a fallback), return it
+                if (result && !result.error) {
+                    console.log(`Successfully transcribed with format: ${format}`);
+                    return result;
+                }
+            } catch (error) {
+                console.log(`Format ${format} failed, trying next...`);
+                continue;
+            }
+        }
+        
+        // If all formats fail, return the standard fallback
+        console.log('All format attempts failed, using standard fallback');
+        return await this.transcribeAudioFallback(audioBuffer);
     }
 
     async transcribeAudioFallback(audioBuffer) {

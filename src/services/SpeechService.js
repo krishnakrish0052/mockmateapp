@@ -21,8 +21,22 @@ class SpeechService extends EventEmitter {
             return transcription;
         } catch (error) {
             console.error('Error during transcription:', error);
+            
+            // Instead of throwing the error, emit it and return a fallback response
             this.emit('error', error);
-            throw error;
+            
+            // Return a graceful fallback response
+            const fallbackResponse = {
+                response: "I'm sorry, I couldn't transcribe the audio. Please try typing your question instead.",
+                text: "I'm sorry, I couldn't transcribe the audio. Please try typing your question instead.",
+                model: 'fallback-speech-service',
+                timestamp: new Date().toISOString(),
+                confidence: 0,
+                error: 'Audio transcription failed'
+            };
+            
+            this.emit('transcription', fallbackResponse);
+            return fallbackResponse;
         }
     }
 
