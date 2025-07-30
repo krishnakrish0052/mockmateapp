@@ -225,8 +225,34 @@ class AIService {
     // Detect audio format from buffer magic bytes
     detectAudioFormat(audioBuffer) {
         try {
+            // Convert to Buffer if it's not already
+            let buffer;
+            if (Buffer.isBuffer(audioBuffer)) {
+                buffer = audioBuffer;
+            } else if (audioBuffer instanceof Uint8Array) {
+                buffer = Buffer.from(audioBuffer);
+            } else if (Array.isArray(audioBuffer)) {
+                buffer = Buffer.from(audioBuffer);
+            } else if (typeof audioBuffer === 'string') {
+                // If it's a base64 string, decode it first
+                try {
+                    buffer = Buffer.from(audioBuffer, 'base64');
+                } catch {
+                    buffer = Buffer.from(audioBuffer);
+                }
+            } else {
+                console.warn('Unknown audio buffer type:', typeof audioBuffer, 'defaulting to WAV');
+                return 'wav';
+            }
+            
+            // Ensure we have enough bytes to check
+            if (buffer.length < 12) {
+                console.warn('Audio buffer too small for format detection, defaulting to WAV');
+                return 'wav';
+            }
+            
             // Check magic bytes to detect audio format
-            const header = audioBuffer.subarray(0, 12);
+            const header = buffer.subarray(0, 12);
             
             // WAV format: starts with "RIFF" and contains "WAVE"
             if (header[0] === 0x52 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x46 &&
@@ -241,7 +267,7 @@ class AIService {
             }
             
             // M4A/AAC format: starts with ftyp box
-            if (header[4] === 0x66 && header[5] === 0x74 && header[6] === 0x79 && header[7] === 0x70) {
+            if (buffer.length >= 8 && header[4] === 0x66 && header[5] === 0x74 && header[6] === 0x79 && header[7] === 0x70) {
                 return 'm4a';
             }
             
@@ -255,12 +281,63 @@ class AIService {
                 return 'webm';
             }
             
+            // Check if it looks like raw PCM data (common for system audio capture)
+            // If the first few bytes are within a reasonable range for 16-bit PCM, assume WAV
+            const isLikelyPCM = this.isLikelyPCMData(buffer);
+            if (isLikelyPCM) {
+                console.log('Detected raw PCM data, treating as WAV format');
+                return 'wav';
+            }
+            
             // Default to WAV if format cannot be detected
             console.warn('Could not detect audio format from buffer, defaulting to WAV');
+            console.warn('Buffer start bytes:', Array.from(header.subarray(0, Math.min(12, header.length))).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '));
             return 'wav';
         } catch (error) {
             console.error('Error detecting audio format:', error);
             return 'wav'; // Safe default
+        }
+    }
+
+    // Helper method to detect if buffer contains PCM audio data
+    isLikelyPCMData(buffer) {
+        try {
+            // Check if the buffer looks like raw PCM data
+            // PCM data typically has values that vary within reasonable ranges
+            if (buffer.length < 1024) {
+                return false; // Too small to be meaningful PCM data
+            }
+            
+            // Sample some bytes and check if they look like 16-bit PCM values
+            let variationCount = 0;
+            let previousValue = null;
+            const sampleSize = Math.min(512, buffer.length);
+            
+            for (let i = 0; i < sampleSize - 1; i += 2) {
+                // Read as 16-bit little-endian signed integer
+                const value = buffer.readInt16LE(i);
+                
+                if (previousValue !== null) {
+                    // Check for variation (not constant)
+                    if (Math.abs(value - previousValue) > 10) {
+                        variationCount++;
+                    }
+                }
+                previousValue = value;
+            }
+            
+            // If we see enough variation, it's likely PCM data
+            const variationRatio = variationCount / (sampleSize / 2 - 1);
+            const isLikelyPCM = variationRatio > 0.1; // At least 10% variation
+            
+            if (isLikelyPCM) {
+                console.log(`Buffer appears to be PCM data (${(variationRatio * 100).toFixed(1)}% variation)`);
+            }
+            
+            return isLikelyPCM;
+        } catch (error) {
+            // If we can't read as 16-bit integers, probably not PCM
+            return false;
         }
     }
 
