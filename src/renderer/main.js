@@ -312,12 +312,15 @@ class MockMateController {
     }
 
     async handleAnalyzeScreen() {
+        if (this.isGeneratingResponse) return; // Prevent multiple triggers
+
         try {
-            this.showToast('\uD83D\uDC41\uFE0F Capturing screen...', 'info');
-            
+            this.isGeneratingResponse = true;
             const analyzeBtn = document.getElementById('analyzeScreenBtn');
             analyzeBtn.classList.add('active');
 
+            this.showToast('\uD83D\uDC41\uFE0F Capturing screen and preparing for AI analysis...', 'info');
+            
             // Request screen capture from main process
             const screenData = await ipcRenderer.invoke('capture-screen');
             
@@ -325,25 +328,19 @@ class MockMateController {
                 throw new Error(screenData.error);
             }
 
-            this.showToast('\uD83D\uDD0D Analyzing content...', 'info');
+            this.showToast('\uD83D\uDD0D Sending image to AI and generating answer...', 'info');
 
-            // Process the captured screen
-            const analysisResult = await ipcRenderer.invoke('analyze-screen-content', screenData);
+            // Trigger the full analysis and response generation in the main process
+            // The main process will handle showing the loading state and streaming to the response window
+            await ipcRenderer.invoke('analyze-screen-and-respond', screenData.thumbnail);
             
-            if (analysisResult.questions && analysisResult.questions.length > 0) {
-                const transcriptionEl = document.getElementById('transcriptionText');
-                transcriptionEl.textContent = `"${analysisResult.questions[0]}"`;
-                transcriptionEl.classList.add('active');
-                this.currentQuestion = analysisResult.questions[0];
-                this.showToast('\u2705 Questions detected on screen!', 'success');
-            } else {
-                this.showToast('\u2139\uFE0F No questions found on screen', 'warning');
-            }
+            this.showToast('\u2705 AI response streamed to response window!', 'success');
 
         } catch (error) {
-            console.error('Screen analysis failed:', error);
-            this.showToast('\u274C Screen analysis failed', 'error');
+            console.error('Screen analysis and response failed:', error);
+            this.showToast('\u274C Failed to analyze screen and generate response', 'error');
         } finally {
+            this.isGeneratingResponse = false;
             const analyzeBtn = document.getElementById('analyzeScreenBtn');
             analyzeBtn.classList.remove('active');
         }

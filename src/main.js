@@ -37,9 +37,11 @@ class MockMateApp {
         this._aiService = null;
         this._systemAudioService = null;
         this._screenCaptureService = null;
+        /*
         this._ocrService = null;
         this._questionDetectionService = null;
         this._documentIntelligenceService = null;
+        */
         this._speechService = null;
         // App state
         this.appState = {
@@ -634,61 +636,59 @@ class MockMateApp {
             }
         });
 
-        // Enhanced screen content analysis with new services
-        ipcMain.handle('analyze-screen-content', async (event, screenData) => {
+        // Handle screen analysis and AI response generation
+        ipcMain.handle('analyze-screen-and-respond', async (event, imageDataUrl) => {
             try {
-                console.log('🔍 Starting enhanced screen analysis...');
+                console.log('🔍 Starting AI vision screen analysis and response generation...');
+                console.log('Received imageDataUrl (first 50 chars): ', imageDataUrl.substring(0, 50) + '...');
                 
-                // Use our new QuestionDetectionService which integrates OCR and AI
-                const analysisResult = await this.questionDetectionService.detectQuestions(
-                    screenData.thumbnail,
-                    {
-                        useAI: true,
-                        confidenceThreshold: 0.5,
-                        ocrOptions: {
-                            provider: 'tesseract', // Will fallback to cloud providers if available
-                            extractQuestions: true,
-                            applyCorrections: true
-                        }
-                    }
-                );
+                // Prompt to identify question and generate answer
+                const prompt = "You are an expert interview coach. Analyze the attached screenshot, identify the interview question, and then provide a concise, accurate, and well-structured answer suitable for a job interview. If no question is visible, state that and provide a general interview tip.";
+                console.log('Prompt sent to AI: ', prompt);
+
+                // Show loading response window immediately
+                this.showLoadingResponse('Analyzing screen and generating answer...');
+
+                const aiResponse = await this.aiService.analyzeImageWithPrompt(imageDataUrl, prompt, (chunk) => {
+                    // Stream chunks to the response window
+                    this.streamResponseUpdate({
+                        content: chunk.content,
+                        question: 'Screen Analysis',
+                        model: chunk.model,
+                        timestamp: chunk.timestamp,
+                        isStreaming: true
+                    });
+                });
                 
-                if (analysisResult.success) {
-                    console.log(`✅ Found ${analysisResult.questions.length} questions in ${analysisResult.processingTime}ms`);
-                    
-                    // Update app state with the best question found
-                    if (analysisResult.questions.length > 0) {
-                        const bestQuestion = analysisResult.questions[0];
-                        this.appState.currentQuestion = bestQuestion.text;
-                        
-                        // Notify control window about detected question
-                        if (this.controlWindow) {
-                            this.controlWindow.webContents.send('question-detected', {
-                                question: bestQuestion.text,
-                                type: bestQuestion.type,
-                                confidence: bestQuestion.confidence
-                            });
-                        }
-                    }
-                    
-                    return {
-                        success: true,
-                        extractedText: analysisResult.metadata?.extractedText || '',
-                        questions: analysisResult.questions.map(q => q.text),
-                        detailedQuestions: analysisResult.questions,
-                        confidence: analysisResult.questions.length > 0 ? 
-                            analysisResult.questions[0].confidence : 0.1,
-                        processingTime: analysisResult.processingTime,
-                        metadata: analysisResult.metadata
-                    };
-                } else {
-                    console.error('❌ Screen analysis failed:', analysisResult.error);
-                    return { error: analysisResult.error };
-                }
-                
+                console.log('Raw AI response received: ', JSON.stringify(aiResponse, null, 2));
+
+                // Extract the question text from the AI response
+                // Assuming the AI's response for the question is within aiResponse.response
+                const questionText = aiResponse.response ? aiResponse.response.trim() : '';
+                console.log('Extracted question text: ', questionText);
+
+                // Final update to response window (if not already handled by streaming completion)
+                this.updateResponseWindow({
+                    response: aiResponse.response,
+                    question: 'Screen Analysis',
+                    model: aiResponse.model,
+                    timestamp: aiResponse.timestamp
+                });
+
+                return { success: true };
+
             } catch (error) {
-                console.error('❌ Enhanced screen analysis error:', error);
-                return { error: error.message };
+                console.error('❌ AI vision screen analysis and response failed:', error);
+                
+                // Show error in response window
+                this.updateResponseWindow({
+                    response: `Error: ${error.message}`,
+                    question: 'Screen Analysis',
+                    model: this.appState.selectedModel,
+                    timestamp: new Date().toISOString()
+                });
+                
+                return { success: false, error: error.message };
             }
         });
         // Handle system sound toggle from renderer
@@ -1437,6 +1437,117 @@ class MockMateApp {
         
         // Remove duplicates and return unique questions
         return [...new Set(questions)];
+    }
+
+    async _handleScreenAnalysis(imageDataUrlFromRenderer = null) {
+        try {
+            this.showLoadingResponse('Capturing screen and analyzing...');
+            let screenshot;
+            let imageDataUrl;
+
+            if (imageDataUrlFromRenderer) {
+                // If imageDataUrl is provided by renderer, use it directly
+                imageDataUrl = imageDataUrlFromRenderer;
+                console.log('Using imageDataUrl from renderer (first 50 chars): ', imageDataUrl.substring(0, 50) + '...');
+            } else {
+                // Otherwise, capture full screen
+                screenshot = await this.screenCaptureService.captureFullScreen();
+                if (screenshot.error) {
+                    console.error('Screen capture failed:', screenshot.error);
+                    this.updateResponseWindow({
+                        response: `Error: Screen capture failed: ${screenshot.error}`,
+                        question: 'Screen Analysis',
+                        model: this.appState.selectedModel,
+                        timestamp: new Date().toISOString()
+                    });
+                    return { success: false, error: screenshot.error };
+                }
+                imageDataUrl = `data:image/png;base64,${screenshot.imageData.toString('base64')}`;
+                console.log('Captured new screenshot (first 50 chars): ', imageDataUrl.substring(0, 50) + '...');
+            }
+
+            // 1. Perform OCR on the captured image
+            this.showLoadingResponse('Performing OCR...');
+            const ocrResult = await this.ocrService.performOCR(imageDataUrl);
+            const extractedText = ocrResult.text;
+            console.log('OCR Extracted Text (first 200 chars):', extractedText.substring(0, Math.min(extractedText.length, 200)) + '...');
+
+            if (!extractedText || extractedText.trim().length < 10) {
+                const noTextPrompt = "You are an expert interview coach. Analyze the attached screenshot. If no discernible text or question is visible, provide a general interview tip or observation about the image content.";
+                const aiResponse = await this.aiService.analyzeImageWithPrompt(imageDataUrl, noTextPrompt);
+                this.updateResponseWindow({
+                    response: aiResponse.response,
+                    question: 'Screen Analysis',
+                    model: aiResponse.model,
+                    timestamp: aiResponse.timestamp
+                });
+                return { success: true };
+            }
+
+            // Construct a single, comprehensive prompt for the AI
+                        let aiPrompt = `You are an expert technical assistant. Your primary goal is to directly fulfill requests or solve problems presented in the extracted text. Analyze the following text, which was extracted from a screenshot. 
+
+`;
+
+            // Add contextual information if available
+            if (this.appState.companyName) {
+                aiPrompt += `Company: ${this.appState.companyName}\n`;
+            }
+            if (this.appState.jobDescription) {
+                aiPrompt += `Job Description: ${this.appState.jobDescription}\n`;
+            }
+            if (this.appState.resumeData) {
+                // Assuming resumeData is an object with relevant fields like skills, experience, etc.
+                // You might want to format this more nicely depending on the structure of resumeData
+                aiPrompt += `User's Resume Data (Skills, Experience, etc.):\n`;
+                if (this.appState.resumeData.skills) {
+                    aiPrompt += `  Skills: ${this.appState.resumeData.skills.join(', ')}\n`;
+                }
+                if (this.appState.resumeData.experience) {
+                    aiPrompt += `  Experience: ${this.appState.resumeData.experience}\n`;
+                }
+                if (this.appState.resumeData.summary) {
+                    aiPrompt += `  Summary: ${this.appState.resumeData.summary}\n`;
+                }
+                // Add other relevant resume fields as needed
+            }
+
+            aiPrompt += `\n**Your task is to:**\n\n1.  **Identify the core request:** Is it a question to be answered, a coding challenge to be solved, a file to be written (like an Ansible playbook or Dockerfile), or a general task requiring direct action?\n2.  **Provide a direct solution/response:**\n    *   **If it's a question:** Answer it concisely and accurately, as an expert would.\n    *   **If it's a coding challenge or request to write code/file:** Provide the complete, correct, and well-commented code/file directly. Do NOT just describe how to solve it; provide the solution itself.\n    *   **If it's a general task:** Perform the task or provide the most direct and helpful output to complete it.\n\n**Crucially, your output should be the solution or direct response, not a meta-analysis or a question about the task.**\n\nExtracted Text from Screenshot:\n"""\n${extractedText}\n"""\n\nYour Direct Response/Solution:`
+
+            // Send the comprehensive prompt to the AI service
+            this.showLoadingResponse('Analyzing text and generating response...');
+            const aiResponse = await this.aiService.analyzeImageWithPrompt(imageDataUrl, aiPrompt, (chunk) => {
+                this.streamResponseUpdate({
+                    content: chunk.content,
+                    question: 'Screen Analysis',
+                    model: chunk.model,
+                    timestamp: chunk.timestamp,
+                    isStreaming: true
+                });
+            });
+
+            console.log('Raw AI response received:', JSON.stringify(aiResponse, null, 2));
+
+            // Final update to response window
+            this.updateResponseWindow({
+                response: aiResponse.response,
+                question: 'Screen Analysis',
+                model: aiResponse.model,
+                timestamp: aiResponse.timestamp
+            });
+
+            return { success: true, aiResponse: aiResponse.response };
+
+        } catch (error) {
+            console.error('❌ Screen analysis and response failed:', error);
+            this.updateResponseWindow({
+                response: `Error: ${error.message}`,
+                question: 'Screen Analysis',
+                model: this.appState.selectedModel,
+                timestamp: new Date().toISOString()
+            });
+            return { success: false, error: error.message };
+        }
     }
 
     // Helper method to analyze resume content

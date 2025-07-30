@@ -126,17 +126,17 @@ class AIService {
         }
     }
 
-    async analyzeImageWithPrompt(imageUrl, prompt) {
+    async analyzeImageWithPrompt(imageUrl, prompt, onChunk = null) {
         try {
             const requestBody = {
-                model: 'openai', // Or another vision-capable model
+                model: 'openai', // Vision-capable model
                 messages: [
                     {
                         role: "user",
                         content: [
                             {
                                 type: "text",
-                                text: "You are an expert at analyzing user interfaces. In the attached screenshot, identify the main interview question being asked. Extract only the question text, ignoring all other UI elements, buttons, or surrounding text. Return only the question."
+                                text: prompt
                             },
                             {
                                 type: "image_url",
@@ -144,15 +144,42 @@ class AIService {
                             }
                         ]
                     }
-                ]
+                ],
+                max_tokens: 500,
+                stream: onChunk !== null,
+                private: true
             };
 
-            const response = await axios.post(this.openaiEndpoint, requestBody, {
+            const startTime = Date.now();
+            const response = await fetch(this.openaiEndpoint, {
+                method: 'POST',
                 headers: this.getAuthHeaders(),
-                timeout: 30000, // 30 seconds timeout for analysis
+                body: JSON.stringify(requestBody),
+                signal: AbortSignal.timeout(30000) // 30 seconds timeout for analysis
             });
 
-            return this.formatResponse(response.data);
+            if (!response.ok) {
+                throw new Error(`API Error: ${response.status} ${response.statusText}`);
+            }
+
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('text/event-stream')) {
+                return await this._processStreamOptimized(response.body.getReader(), onChunk, startTime);
+            } else {
+                const jsonData = await response.json();
+                let content = this._extractContent(jsonData);
+                
+                if (onChunk && content) {
+                    this._simulateStreaming(content, onChunk);
+                }
+                
+                return { 
+                    response: content, 
+                    model: this.selectedModel, 
+                    timestamp: new Date().toISOString(),
+                    responseTime: Date.now() - startTime
+                };
+            }
         } catch (error) {
             console.error('Image analysis error:', error);
             throw new Error('Failed to analyze image: ' + error.message);
