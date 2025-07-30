@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html style="margin:0!important;padding:0!important;border:0!important;width:100%!important;height:100%!important;overflow:hidden!important;">
+<head>
+    <title>MockMate AI: Response Window</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://speedcf.cloudflareaccess.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self';">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/material-design-icons/4.0.0/iconfont/material-icons.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-bg: #0f0f0f;
+            --secondary-bg: rgba(18, 18, 18, 0.2);
+            --panel-bg: rgba(25, 25, 25, 0.2);
+            --accent: #00d4ff;
+            --accent-secondary: #ff6b35;
+            --success: #00c896;
+            --danger: #ff4757;
+            --warning: #ffa502;
+            --text-primary: rgba(255, 255, 255, 0.95);
+            --text-secondary: rgba(255, 255, 255, 0.8);
+            --text-muted: rgba(255, 255, 255, 0.5);
+            --border: rgba(255, 255, 255, 0.15);
+            --border-active: rgba(0, 212, 255, 0.4);
+            --shadow-sm: none; /* Removed shadows */
+            --shadow-lg: none; /* Removed shadows */
+            --gradient-primary: linear-gradient(135deg, rgba(0, 212, 255, 0.1), rgba(255, 107, 53, 0.05));
+            --gradient-panel: linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+        }
+
+        * {
+            box-sizing: border-box !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        html {
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            outline: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'SF Pro Display', system-ui, sans-serif;
+            background: transparent;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            outline: 0 !important;
+            color: var(--text-primary);
+            line-height: 1.6;
+            font-size: 14px;
+            width: 100% !important;
+            height: 100% !important;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .response-container {
+            /* width: 100vw !important; */
+            /* height: 100vh !important; */
+            display: block;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            pointer-events: none;
+        }
+
+        .response-window {
+            /* width: 100vw !important; */
+            /* height: 100vh !important; */
+            background: rgba(0, 0, 0, 0.9); /* Set to 90% opacity (10% transparency) */
+            border-radius: 12px !important;
+            display: flex;
+            flex-direction: column;
+            backdrop-filter: blur(10px); /* Reduced blur for more transparency */
+            -webkit-backdrop-filter: blur(10px);
+            border: 0 !important; /* Removed border */
+            box-shadow: none !important; /* Removed shadows */
+            overflow: hidden;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            pointer-events: auto;
+        }
+
+        .response-header {
+            display: none;
+        }
+
+        .response-header-info {
+            -webkit-app-region: no-drag;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-grow: 1;
+        }
+
+        .response-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        .response-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0;
+        }
+
+        .response-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin: 0;
+        }
+
+        .response-actions {
+            -webkit-app-region: no-drag;
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .response-btn {
+            width: 28px;
+            height: 28px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 14px;
+        }
+
+        .response-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            transform: translateY(-1px);
+        }
+
+        .response-btn.danger:hover {
+            background: rgba(255, 71, 87, 0.2);
+            color: var(--danger);
+            border-color: var(--danger);
+        }
+
+        .response-content {
+            flex: 1;
+            padding: 16px !important;
+            overflow-y: auto;
+            background: transparent;
+            position: relative;
+            z-index: 1;
+        }
+
+        .response-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .response-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .response-content::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+
+        .response-content::-webkit-scrollbar-thumb:hover {
+            background: var(--border-active);
+        }
+
+        
+
+        .response-text {
+            font-size: 15px;
+            font-weight: bold;
+            color: var(--text-primary);
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        
+
+        .timestamp {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 12px !important;
+            text-align: right;
+        }
+
+        .loading-state {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 40px !important;
+            color: var(--text-muted);
+        }
+
+        .loading-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .material-icons {
+            font-family: 'Material Icons' !important;
+            font-weight: normal;
+            font-style: normal;
+            font-size: 16px;
+            display: inline-block;
+            line-height: 1;
+            text-transform: none;
+            letter-spacing: normal;
+            word-wrap: normal;
+            white-space: nowrap;
+            direction: ltr;
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+            -moz-osx-font-smoothing: grayscale;
+            font-feature-settings: 'liga';
+            vertical-align: middle;
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 20px !important;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        .empty-state .material-icons {
+            font-size: 48px;
+            margin-bottom: 16px !important;
+            opacity: 0.3;
+        }
+
+        .empty-state-title {
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 8px !important;
+            color: var(--text-secondary);
+        }
+
+        .close-button-inside {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body style="margin:0!important;padding:0!important;border:0!important;width:100%!important;height:100%!important;overflow:hidden!important;position:relative!important;">
+    <div class="response-container">
+        <div class="response-window">
+            <div class="response-content" id="responseContent">
+                <button class="response-btn danger close-button-inside" id="closeBtn" title="Close Response">
+                    <span class="material-icons">close</span>
+                </button>
+                <div id="initialState" class="empty-state">
+                    <span class="material-icons">psychology</span>
+                    <div class="empty-state-title">Ready for AI Response</div>
+                    <div class="empty-state-subtitle">AI responses will appear here.</div>
+                </div>
+                <div id="loadingState" class="loading-state" style="display: none;">
+                    <div class="loading-spinner"></div>
+                </div>
+                <div id="streamedResponseText" class="response-text" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ipcRenderer = window.electron.ipcRenderer;
+
+        class ResponseWindowController {
+            constructor() {
+                this.responseContent = document.getElementById('responseContent');
+                this.streamedResponseEl = document.getElementById('streamedResponseText');
+                this.loadingStateEl = document.getElementById('loadingState');
+                this.initialStateEl = document.getElementById('initialState');
+                
+                this.isStreaming = false;
+                this.resizeTimeout = null;
+                this.chunkQueue = [];
+                this.isRenderingScheduled = false;
+                this.rawStreamedContent = ''; // New variable to store raw content
+
+                this.init();
+            }
+
+            init() {
+                this.setupEventListeners();
+                this.setupIPCListeners();
+            }
+
+            setupEventListeners() {
+                document.getElementById('closeBtn').addEventListener('click', () => {
+                    ipcRenderer.send('close-response-window');
+                });
+            }
+
+            setupIPCListeners() {
+                ipcRenderer.on('display-response', (event, data) => {
+                    this.displayResponse(data);
+                });
+
+                ipcRenderer.on('stream-response-chunk', (event, data) => {
+                    this.handleStreamChunk(data);
+                });
+            }
+
+            handleStreamChunk(data) {
+                if (data.isFinal) {
+                    this.isStreaming = false;
+                    // Apply final formatting to the full response
+                    this.streamedResponseEl.innerHTML = this.formatResponse(this.rawStreamedContent);
+                    this.requestResize();
+                    return; // Stop processing further for this final chunk
+                }
+
+                if (!this.isStreaming && data.content) {
+                    // First chunk with content
+                    this.isStreaming = true;
+                    this.chunkQueue = [];
+                    this.streamedResponseEl.textContent = ''; // Reset content
+                    this.loadingStateEl.style.display = 'none';
+                    this.initialStateEl.style.display = 'none';
+                    this.streamedResponseEl.style.display = 'block';
+                }
+
+                if (data.content) {
+                    this.chunkQueue.push(data.content);
+                    this.rawStreamedContent += data.content; // Accumulate raw content
+                }
+
+                this.scheduleRender();
+            }
+
+            scheduleRender() {
+                if (this.isRenderingScheduled) return;
+                this.isRenderingScheduled = true;
+                requestAnimationFrame(() => this.renderContent());
+            }
+
+            renderContent() {
+                this.isRenderingScheduled = false;
+
+                if (this.chunkQueue.length > 0) {
+                    const textToAppend = this.chunkQueue.join('');
+                    this.chunkQueue = [];
+                    this.streamedResponseEl.innerHTML += textToAppend;
+                    this.requestResize();
+                }
+            }
+
+            displayResponse(data) {
+                // Cancel any ongoing streaming/rendering
+                this.isStreaming = false;
+                this.isRenderingScheduled = false;
+                this.chunkQueue = [];
+                this.rawStreamedContent = ''; // Reset raw content
+
+                this.streamedResponseEl.style.display = 'none';
+
+                if (data.isLoading) {
+                    this.initialStateEl.style.display = 'none';
+                    this.loadingStateEl.style.display = 'flex';
+                    this.streamedResponseEl.innerHTML = '';
+                } else {
+                    this.loadingStateEl.style.display = 'none';
+                    this.initialStateEl.style.display = 'none';
+                    this.streamedResponseEl.style.display = 'block';
+
+                    if (data.error) {
+                        this.showError(data.error);
+                    } else {
+                        const aiResponseContent = data.response || data.text || 'No response content found';
+                        this.streamedResponseEl.innerHTML = this.formatResponse(aiResponseContent);
+                    }
+                    this.requestResize();
+                }
+            }
+
+            requestResize() {
+                if (this.resizeTimeout) {
+                    clearTimeout(this.resizeTimeout);
+                }
+                this.resizeTimeout = setTimeout(() => {
+                    const contentHeight = this.responseContent.scrollHeight;
+                    ipcRenderer.send('resize-response-window', contentHeight);
+                }, 100); // Debounce for 100ms
+            }
+
+            formatResponse(response) {
+                if (!response) return 'No response generated';
+                // 1. Escape basic HTML
+                let formatted = response
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+                
+                // 2. Convert markdown bold/italics to HTML tags
+                formatted = formatted
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+                // 3. Convert newlines to <br> tags
+                formatted = formatted.replace(/\n/g, '<br>');
+                
+                return formatted;
+            }
+
+            showError(error) {
+                this.streamedResponseEl.innerHTML = `
+                    <div class="empty-state">
+                        <span class="material-icons" style="color: var(--danger);">error_outline</span>
+                        <div class="empty-state-title">An Error Occurred</div>
+                        <div class="empty-state-subtitle">${error}</div>
+                    </div>
+                `;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            new ResponseWindowController();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html style="margin:0!important;padding:0!important;border:0!important;width:100%!important;height:100%!important;overflow:hidden!important;">
+<head>
+    <title>MockMate AI: Control Panel</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://speedcf.cloudflareaccess.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self';">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/material-design-icons/4.0.0/iconfont/material-icons.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-bg: #0f0f0f;
+            --secondary-bg: rgba(18, 18, 18, 0.2);
+            --panel-bg: rgba(25, 25, 25, 0.2);
+            --accent: #00d4ff;
+            --accent-secondary: #ff6b35;
+            --success: #00c896;
+            --danger: #ff4757;
+            --warning: #ffa502;
+            --text-primary: rgba(255, 255, 255, 0.95);
+            --text-secondary: rgba(255, 255, 255, 0.8);
+            --text-muted: rgba(255, 255, 255, 0.5);
+            --border: rgba(255, 255, 255, 0.15);
+            --border-active: rgba(0, 212, 255, 0.4);
+            --shadow-sm: none; /* Removed shadows */
+            --shadow-lg: none; /* Removed shadows */
+            --gradient-primary: linear-gradient(135deg, rgba(0, 212, 255, 0.1), rgba(255, 107, 53, 0.05));
+            --gradient-panel: linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+        }
+        /* Removed response window styles - handled by separate window */
+        .typing {
+            position: relative;
+        }
+        .typing::after {
+            content: '|';
+            animation: blink 1s infinite;
+            color: var(--accent);
+        }
+        * {
+            box-sizing: border-box !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        html {
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            outline: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'SF Pro Display', system-ui, sans-serif;
+            background: transparent;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            outline: 0 !important;
+            color: var(--text-primary);
+            line-height: 1.6;
+            font-size: 14px;
+            width: 100% !important;
+            height: 100% !important;
+            overflow: hidden;
+            position: relative;
+        }
+        .app-container {
+            /* width: 100vw !important; */
+            /* height: 100vh !important; */
+            display: block;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            pointer-events: none;
+        }
+        .main-window {
+            /* width: 100vw !important; */
+            max-width: none !important;
+            /* height: 100vh !important; */
+            background: rgba(0, 0, 0, 0.9); /* Set to 90% opacity (10% transparency) */
+            border-radius: 12px !important;
+            display: flex;
+            flex-direction: column;
+            backdrop-filter: blur(10px); /* Reduced blur for more transparency */
+            -webkit-backdrop-filter: blur(10px);
+            border: 0 !important;
+            box-shadow: none !important; /* Removed shadows */
+            overflow: hidden;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            pointer-events: auto;
+        }
+        .header {
+            -webkit-app-region: drag;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px !important;
+            border-bottom: none;
+            background: transparent;
+            position: relative;
+            z-index: 2;
+            min-height: 40px;
+            flex-wrap: nowrap;
+            gap: 12px;
+        }
+        .brand { 
+            -webkit-app-region: no-drag;
+            display: flex; 
+            align-items: center; 
+            gap: 12px; 
+            flex-shrink: 0;
+        }
+        .logo {
+            width: 36px; height: 36px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px; color: white;
+            box-shadow: none;
+        }
+        .brand h2 {
+            font-size: 16px; margin: 0; font-weight: 600; letter-spacing: -0.2px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            white-space: nowrap;
+        }
+        .status-pill {
+            background: rgba(0, 200, 150, 0.15); color: var(--success);
+            padding: 8px 16px; border-radius: 20px; font-size: 11px;
+            font-weight: 500; border: 1px solid rgba(0, 200, 150, 0.2);
+            margin-right: 16px; animation: pulse 2s infinite;
+            white-space: nowrap;
+        }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes slideIn { 0% { transform: translateX(100%); opacity: 0; } 100% { transform: translateX(0); opacity: 1; } }
+        @keyframes fadeOut { 0% { opacity: 1; } 100% { opacity: 0; } }
+        .controls-bar { 
+            -webkit-app-region: no-drag;
+            display: flex; 
+            align-items: center; 
+            gap: 16px; 
+            font-size: 12px; 
+            flex-wrap: nowrap;
+            overflow-x: hidden;
+            flex-shrink: 1;
+            min-width: 0;
+        }
+        .control-item { 
+            display: flex; 
+            align-items: center; 
+            gap: 8px; 
+            color: var(--text-secondary); 
+            transition: color 0.2s ease;
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+        .control-item:hover { color: var(--text-primary); }
+        .control-icon { display: flex; align-items: center; justify-content: center; color: var(--accent); }
+        .recording-indicator {
+            width: 10px; height: 10px; background: var(--danger);
+            border-radius: 50%; animation: blink 1.5s infinite;
+            box-shadow: 0 0 8px var(--danger);
+        }
+        @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0.3; } }
+        .utility-buttons { 
+            -webkit-app-region: no-drag;
+            display: flex; 
+            gap: 8px; 
+            flex-shrink: 0;
+        }
+        .utility-btn {
+            width: 32px; height: 32px; background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s ease; font-size: 16px;
+        }
+        .utility-btn:hover { background: rgba(255, 255, 255, 0.1); color: var(--text-primary); transform: translateY(-1px); }
+        .utility-btn.danger:hover { background: rgba(255, 71, 87, 0.2); color: var(--danger); border-color: var(--danger); }
+        .utility-btn.active {
+            background: rgba(0, 212, 255, 0.2);
+            color: var(--accent);
+            box-shadow: none;
+        }
+        .transcription-area {
+            padding: 12px !important; background: transparent; font-size: 14px;
+            line-height: 1.4; min-height: 42px; display: flex; align-items: center;
+            justify-content: space-between;
+            border-bottom: none; position: relative; z-index: 2;
+        }
+        .transcription-text { 
+            color: var(--text-secondary); font-style: italic; opacity: 0.8; 
+            animation: fadeIn 0.3s ease; transition: all 0.2s ease;
+            flex-grow: 1;
+            font-size: 18px;
+        }
+        .transcription-text.active { color: var(--text-primary); opacity: 1; font-style: normal; }
+        .transcription-text.listening { color: var(--accent); }
+        .clear-transcription-btn {
+            background: rgba(255, 255, 255, 0.1);
+            transition: background-color 0.2s ease;
+            flex-shrink: 0;
+            margin-left: 16px;
+        }
+        .clear-transcription-btn .material-icons {
+            font-size: 23px;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        .input-section {
+            display: flex; align-items: center; padding: 10px 12px !important; gap: 10px;
+            background: transparent; border-radius: 0 0 20px 20px;
+            position: relative; z-index: 2;
+        }
+        .action-buttons { display: flex; gap: 8px; }
+        .action-btn {
+            background: rgba(255, 255, 255, 0.08); padding: 12px 17px; border-radius: 10px;
+            border: 1px solid var(--border); color: var(--text-primary); font-size: 18px;
+            font-weight: 500; white-space: nowrap; display: flex; align-items: center;
+            gap: 5px; cursor: pointer; transition: all 0.2s ease; height: 42px;
+            min-width: 168px;
+        }
+        .action-btn:hover { background: rgba(255, 255, 255, 0.15); border-color: var(--border-active); transform: translateY(-1px); }
+        .action-btn.primary {
+            background: linear-gradient(135deg, var(--accent), rgba(0, 212, 255, 0.8));
+            border-color: transparent; color: white;
+        }
+        .action-btn.primary:hover {
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.9), var(--accent));
+            box-shadow: none;
+        }
+        .input-container { flex-grow: 1; position: relative; }
+        .text-input {
+            width: 100%; height: 42px; background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border); border-radius: 10px; padding: 0 16px;
+            color: var(--text-primary); font-size: 17px; transition: all 0.2s ease;
+        }
+        .text-input:focus {
+            outline: none; background: rgba(255, 255, 255, 0.08);
+            border-color: var(--accent); box-shadow: none;
+        }
+        .text-input::placeholder { color: var(--text-muted); }
+        .send-btn {
+            background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+            color: white; font-weight: 600; width: 42px; height: 42px;
+            border-radius: 10px; display: flex; align-items: center; justify-content: center;
+            border: none; cursor: pointer; transition: all 0.2s ease;
+            box-shadow: none;
+        }
+        .send-btn:hover { transform: scale(1.05); box-shadow: none; }
+        .model-selector-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .model-dropdown {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 16px;
+            padding: 8px 12px;
+            height: 42px;
+            min-width: 140px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            background-image: url('data:image/svg+xml;charset=US-ASCII,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 5"><path fill="%23ffffff" opacity="0.6" d="M2 0L0 2h4zM0 3l2 2 2-2z"/></svg>');
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            background-size: 12px;
+            padding-right: 32px;
+            text-align: center;
+        }
+        .model-dropdown:focus {
+            outline: none;
+            background-color: rgba(255, 255, 255, 0.08);
+            border-color: var(--accent);
+        }
+        .model-dropdown:hover {
+            background-color: rgba(255, 255, 255, 0.08);
+            border-color: var(--border-active);
+        }
+        .model-dropdown option {
+            background: var(--primary-bg);
+            color: var(--text-primary);
+            padding: 8px;
+        }
+        .material-icons {
+            font-family: 'Material Icons' !important;
+            font-weight: normal;
+            font-style: normal;
+            font-size: 19px;
+            display: inline-block;
+            line-height: 1;
+            text-transform: none;
+            letter-spacing: normal;
+            word-wrap: normal;
+            white-space: nowrap;
+            direction: ltr;
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+            -moz-osx-font-smoothing: grayscale;
+            font-feature-settings: 'liga';
+            vertical-align: middle;
+        }
+        /* Model selection styles removed - handled by separate window */
+        .info-input {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+            padding: 11px 15px;
+            height: 34px;
+            transition: all 0.2s ease;
+        }
+        .company-input {
+            width: 180px !important;
+            min-width: 180px !important;
+            max-width: 180px !important;
+            flex-shrink: 0 !important;
+        }
+        .job-input {
+            width: 270px !important;
+            min-width: 270px !important;
+            max-width: 270px !important;
+            flex-shrink: 0 !important;
+        }
+        .info-input::placeholder { color: var(--text-muted); }
+        .info-input:focus {
+            outline: none;
+            background: rgba(255, 255, 255, 0.1);
+            border-color: var(--border-active);
+        }
+        /* Responsive Design */
+        @media (max-width: 1024px) {
+            .info-input {
+                width: 140px;
+            }
+            .controls-bar {
+                gap: 12px;
+            }
+            .header {
+                gap: 16px;
+            }
+        }
+        @media (max-width: 900px) {
+            .info-input {
+                width: 120px;
+            }
+        }
+        @media (max-width: 768px) {
+            .header { 
+                flex-wrap: wrap;
+                justify-content: center; 
+            }
+            .brand { 
+                width: 100%; 
+                justify-content: center; 
+                margin-bottom: 16px; 
+            }
+            .input-section { 
+                flex-direction: column; 
+                align-items: stretch; 
+                gap: 12px; 
+            }
+            .controls-bar { 
+                justify-content: center; 
+                flex-wrap: wrap;
+            }
+            .action-buttons { 
+                flex-wrap: wrap; 
+                justify-content: center; 
+            }
+        }
+        @media (max-width: 640px) {
+            .control-item:nth-child(2) {
+                display: none; /* Hide company name on mobile */
+            }
+        }
+    </style>
+</head>
+<body style="margin:0!important;padding:0!important;border:0!important;width:100%!important;height:100%!important;overflow:hidden!important;position:relative!important;">
+    <div class="app-container">
+        <div class="main-window">
+            <div class="header">
+                <div class="brand">
+                    <div class="logo"><span class="material-icons" style="font-size: 19px;">psychology</span></div>
+                    <h2>MockMate AI</h2>
+                </div>
+                <div class="controls-bar">
+                <div class="control-item">
+                        <span class="material-icons control-icon">business</span>
+                        <input type="text" class="info-input company-input" placeholder="Company Name...">
+                    </div>
+                    <div class="control-item">
+                        <span class="material-icons control-icon">description</span>
+                        <input type="text" class="info-input job-input" placeholder="Job Description...">
+                    </div>
+                </div>
+                <div class="utility-buttons">
+                    <button id="uploadResumeBtn" class="utility-btn" title="Upload Resume"><span class="material-icons">upload_file</span></button>
+                    <button id="analyzeScreenBtn" class="utility-btn" title="Analyze Screen"><span class="material-icons">visibility</span></button>
+                    <button id="systemSoundBtn" class="utility-btn" title="System Sound"><span class="material-icons">volume_up</span></button>
+                    <button id="micBtn" class="utility-btn" title="Microphone"><span class="material-icons">mic</span></button>
+                    <button id="endSessionBtn" class="utility-btn danger" title="End Session"><span class="material-icons">close</span></button>
+                </div>
+            </div>
+            <div class="transcription-area">
+                <div id="transcriptionText" class="transcription-text">Audio functionality disabled - Use manual input or screen analysis...</div>
+                <button id="clearBtn" class="utility-btn clear-transcription-btn" title="Clear Transcription"><span class="material-icons">close</span></button>
+            </div>
+            <div class="input-section">
+                <div class="action-buttons">
+                    <button id="generateBtn" class="action-btn primary"><span class="material-icons" style="font-size: 17px;">auto_awesome</span>Generate Answer</button>
+                </div>
+                <div class="model-selector-container">
+                    <select id="modelSelect" class="model-dropdown">
+                        <option value="loading">Loading models...</option>
+                    </select>
+                </div>
+                <div class="input-container">
+                    <input type="text" id="questionInput" class="text-input" placeholder="Ask Me">
+                </div>
+                <button id="sendBtn" class="send-btn"><span class="material-icons">send</span></button>
+            </div>
+        </div>
+        
+        <!-- Response Window removed - will be handled by separate window -->
+    </div>
+    <script src="./src/renderer/main.js"></script>
+    <script>
+        // This script is intentionally left empty as the main logic is in src/renderer/main.js
+        // and communication with main process is handled via preload.js
+    </script>
+    
+</body>
+</html>

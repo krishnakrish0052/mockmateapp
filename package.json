@@ -1,0 +1,67 @@
+{
+  "name": "mockmate-desktop",
+  "version": "1.0.4",
+  "description": "AI-powered interview assistance desktop application with stealth capabilities",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "set NODE_ENV=development && electron .",
+    "build": "electron-builder",
+    "build-win": "set NODE_ENV=production && electron-builder --win",
+    "dist": "electron-builder --publish=never",
+    "test": "jest",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "author": "MockMate Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
+    "electron": "^36.4.0",
+    "electron-builder": "^24.9.1",
+    "electron-reload": "^2.0.0-alpha.1",
+    "jest": "^30.0.5",
+    "mock-require": "^3.0.3"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "dotenv": "^17.2.1",
+    "electron-localshortcut": "^3.2.1",
+    "electron-store": "^8.1.0",
+    "form-data": "^4.0.4",
+    "mammoth": "^1.9.1",
+    "pdf-parse": "^1.1.1",
+    "screenshot-desktop": "^1.15.0",
+    "sharp": "^0.33.1",
+    "smart-buffer": "^4.2.0",
+    "tesseract.js": "^5.0.4"
+  },
+  "build": {
+    "electronVersion": "28.0.0",
+    "appId": "com.mockmate.desktop",
+    "productName": "MockMate",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

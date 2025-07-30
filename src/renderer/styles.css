@@ -1,0 +1,85 @@
+/* Onboarding Section */
+#onboarding-section {
+    position: fixed; /* Use fixed to position relative to viewport */
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.95); /* Dark overlay */
+    backdrop-filter: blur(15px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999; /* High z-index to be on top */
+    color: var(--text-primary);
+    text-align: center;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.onboarding-step {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 30px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    max-width: 500px;
+    width: 90%;
+    display: none; /* Hidden by default */
+}
+
+.onboarding-step h2 {
+    color: var(--accent);
+    margin-bottom: 15px;
+}
+
+.onboarding-step p {
+    font-size: 16px;
+    margin-bottom: 20px;
+}
+
+.onboarding-step input[type="text"],
+.onboarding-step input[type="file"] {
+    width: calc(100% - 20px);
+    padding: 12px;
+    margin-bottom: 15px;
+    border: 1px solid var(--border-active);
+    border-radius: 8px;
+    background-color: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+    font-size: 16px;
+    outline: none;
+}
+
+.onboarding-step input[type="text"]::placeholder {
+    color: var(--text-muted);
+}
+
+.onboarding-step input[type="file"] {
+    cursor: pointer;
+}
+
+.onboarding-step button {
+    background-color: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 25px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.onboarding-step button:hover {
+    background-color: var(--accent-secondary);
+}
+
+/* Ensure main app content is hidden during onboarding */
+.app-container.hidden {
+    display: none;
+}
+
+/* Ensure main app content is visible after onboarding */
+.app-container.visible {
+    display: flex;
+}
