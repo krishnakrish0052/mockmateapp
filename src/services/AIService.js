@@ -106,9 +106,24 @@ class AIService {
         try {
             const audioBase64 = audioBuffer.toString('base64');
 
+            // Following Pollinations API documentation for openai-audio model
             const requestBody = {
                 model: 'openai-audio',
-                audio: `data:audio/wav;base64,${audioBase64}`
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: 'Transcribe this audio:' },
+                            {
+                                type: 'input_audio',
+                                input_audio: {
+                                    data: audioBase64,
+                                    format: 'wav' // Assuming WAV format, can be made dynamic
+                                }
+                            }
+                        ]
+                    }
+                ]
             };
 
             const response = await axios.post(this.openaiEndpoint, requestBody, {
@@ -122,7 +137,7 @@ class AIService {
             
             // Check if this is a tier/payment error (402)
             if (error.response && error.response.status === 402) {
-                console.log('Audio model requires higher tier - attempting text-based fallback');
+                console.log('Audio model requires higher tier - attempting fallback');
                 return await this.transcribeAudioFallback(audioBuffer);
             }
             
