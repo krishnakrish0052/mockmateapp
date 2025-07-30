@@ -590,8 +590,36 @@ class MockMateController {
     }
     
     async startSystemAudioTranscription() {
-        console.log('⚠️ System audio transcription functionality has been completely disabled');
-        this.showToast('\u274C System audio functionality has been permanently disabled', 'warning');
+        console.log('Renderer: Starting system audio transcription...');
+        try {
+            // 1. Get recent audio segment from the buffer
+            const durationMs = 15000; // 15 seconds
+            const audioSegment = await window.electron.audio.getRecentSegment(durationMs);
+
+            if (!audioSegment.success || !audioSegment.segment || audioSegment.segment.data.length === 0) {
+                this.showToast('No recent audio data to transcribe.', 'warning');
+                return;
+            }
+
+            this.showToast('🎤 Transcribing recent audio...', 'info');
+
+            // 2. Send the audio segment to the speech service for transcription
+            const transcriptionResult = await window.electron.speech.transcribe(audioSegment.segment.data);
+
+            if (transcriptionResult.success) {
+                const transcriptionText = transcriptionResult.transcription;
+                const transcriptionEl = document.getElementById('transcriptionText');
+                transcriptionEl.textContent = transcriptionText;
+                transcriptionEl.classList.add('active');
+                this.currentQuestion = transcriptionText;
+                this.showToast('Transcription complete!', 'success');
+            } else {
+                throw new Error(transcriptionResult.error || 'Transcription failed');
+            }
+        } catch (error) {
+            console.error('System audio transcription failed:', error);
+            this.showToast(`Transcription Error: ${error.message}`, 'error');
+        }
     }
 
     
@@ -781,6 +809,9 @@ class MockMateController {
         // Show audio debug info
         this.showAudioDebugWindow();
         
+        // Start buffer status monitoring
+        this.startAudioBufferStatusMonitoring();
+        
         // Start periodic logging
         this.audioDebugInterval = setInterval(() => {
             const timeSinceLastActivity = Date.now() - this.lastAudioActivity;
@@ -801,11 +832,112 @@ class MockMateController {
             this.audioDebugInterval = null;
         }
         
+        // Stop buffer status monitoring
+        this.stopAudioBufferStatusMonitoring();
+        
         // Hide debug window
         this.hideAudioDebugWindow();
         
         // Final stats
         console.log(`Audio Monitor Summary - Total chunks received: ${this.audioDataReceived}`);
+    }
+    
+    async updateAudioBufferStatus() {
+        try {
+            // Fetch buffer health and statistics
+            const health = await window.electron.audio.getBufferHealth();
+            const stats = await window.electron.audio.getBufferStats();
+            
+            if (health.success && stats.success) {
+                // Update buffer status window
+                const statusWindow = document.getElementById('audioBufferStatusWindow');
+                if (statusWindow) {
+                    const content = statusWindow.querySelector('#buffer-stats-content');
+                    if (content) {
+                        const bufferSizeMB = (stats.stats.bufferSize / (1024 * 1024)).toFixed(2);
+                        const usedSizeMB = (stats.stats.usedSize / (1024 * 1024)).toFixed(2);
+                        const usagePercent = ((stats.stats.usedSize / stats.stats.bufferSize) * 100).toFixed(1);
+                        
+                        content.innerHTML = `
+                            <div style="margin: 3px 0;">Status: <span style="color: ${health.health.isHealthy ? '#00ff00' : '#ff4757'};">${health.health.isHealthy ? 'Healthy' : 'Issues'}</span></div>
+                            <div style="margin: 3px 0;">Buffer Size: <span style="font-weight: bold;">${bufferSizeMB} MB</span></div>
+                            <div style="margin: 3px 0;">Used: <span style="font-weight: bold;">${usedSizeMB} MB (${usagePercent}%)</span></div>
+                            <div style="margin: 3px 0;">Segments: <span style="font-weight: bold;">${stats.stats.segmentCount}</span></div>
+                            <div style="margin: 3px 0;">Oldest: <span style="font-weight: bold;">${stats.stats.oldestSegmentAge}ms ago</span></div>
+                            <div style="margin: 3px 0;">Newest: <span style="font-weight: bold;">${stats.stats.newestSegmentAge}ms ago</span></div>
+                        `;
+                    }
+                }
+                
+                // Also update the debug window with RMS if available
+                if (health.health.averageLevel !== undefined) {
+                    this.updateAudioDebugInfo(health.health.averageLevel);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to update audio buffer status:', error);
+            const statusWindow = document.getElementById('audioBufferStatusWindow');
+            if (statusWindow) {
+                const content = statusWindow.querySelector('#buffer-stats-content');
+                if (content) {
+                    content.innerHTML = `<div style="color: #ff4757;">Error fetching buffer status</div>`;
+                }
+            }
+        }
+    }
+    
+    startAudioBufferStatusMonitoring() {
+        console.log('Renderer: Starting audio buffer status monitoring...');
+        this.showAudioBufferStatusWindow();
+        this.audioBufferStatusInterval = setInterval(() => {
+            this.updateAudioBufferStatus();
+        }, 2000); // Update every 2 seconds
+    }
+
+    stopAudioBufferStatusMonitoring() {
+        console.log('Renderer: Stopping audio buffer status monitoring...');
+        if (this.audioBufferStatusInterval) {
+            clearInterval(this.audioBufferStatusInterval);
+            this.audioBufferStatusInterval = null;
+        }
+        this.hideAudioBufferStatusWindow();
+    }
+
+    showAudioBufferStatusWindow() {
+        this.hideAudioBufferStatusWindow(); // Ensure no duplicates
+
+        const statusWindow = document.createElement('div');
+        statusWindow.id = 'audioBufferStatusWindow';
+        statusWindow.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 12px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 11px;
+            z-index: 10000;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            min-width: 280px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+        `;
+
+        statusWindow.innerHTML = `
+            <div style="margin-bottom: 8px; color: #00d4ff; font-weight: bold;">🔄️ Audio Buffer Status</div>
+            <div id="buffer-stats-content">Loading...</div>
+        `;
+
+        document.body.appendChild(statusWindow);
+    }
+
+    hideAudioBufferStatusWindow() {
+        const statusWindow = document.getElementById('audioBufferStatusWindow');
+        if (statusWindow && document.body.contains(statusWindow)) {
+            document.body.removeChild(statusWindow);
+        }
     }
     
     updateAudioDebugInfo(rms) {
