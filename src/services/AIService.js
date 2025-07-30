@@ -131,35 +131,19 @@ class AIService {
     }
 
     async transcribeAudioFallback(audioBuffer) {
-        console.log("Attempting transcription with a text-based model as a fallback.");
-        try {
-            // This is a creative workaround. We're sending the raw audio data as text
-            // and asking a powerful text model to make sense of it. This is not
-            // guaranteed to work but is a last-ditch effort.
-            const prompt = `The following is a base64 encoded string of a WAV audio file. Please transcribe the speech from this audio data: ${audioBuffer.toString('base64')}`;
-            
-            const context = {
-                prompt: prompt,
-            };
-
-            // Using the existing generateResponse method which is for text.
-            const response = await this.generateResponse(context);
-            
-            console.log("Fallback transcription response:", response);
-
-            // The response from a text model won't be in the same format as the audio model,
-            // so we just return the text content.
-            return {
-                response: response.response,
-                text: response.response,
-                model: `fallback-${this.selectedModel}`,
-                timestamp: new Date().toISOString(),
-                confidence: 50 // Lower confidence since it's a fallback
-            };
-        } catch (fallbackError) {
-            console.error('Fallback audio transcription failed:', fallbackError);
-            throw new Error('All transcription methods failed, including fallback.');
-        }
+        console.log("Audio transcription fallback: Text-based models cannot process audio data.");
+        
+        // Return a helpful message instead of trying to send audio data to a text model
+        const fallbackMessage = "I'm sorry, but I cannot transcribe audio at the moment. The audio transcription service is currently unavailable. Please try again later or consider typing your question instead.";
+        
+        return {
+            response: fallbackMessage,
+            text: fallbackMessage,
+            model: `fallback-${this.selectedModel}`,
+            timestamp: new Date().toISOString(),
+            confidence: 0, // No confidence since we cannot actually transcribe
+            error: 'Audio transcription service unavailable'
+        };
     }
 
     async analyzeImageWithPrompt(imageUrl, prompt, onChunk = null) {
@@ -511,28 +495,31 @@ class AIService {
     async generateResponseFallback(context) {
         try {
             const prompt = context.prompt;
-            const encodedPrompt = encodeURIComponent(prompt);
-            console.log('Sending request to Fallback GET endpoint:', `${this.textBaseURL}/${encodedPrompt}`);
-            const params = {
+    
+            console.log('Sending request to Fallback POST endpoint:', this.textBaseURL);
+    
+            const requestBody = {
+                prompt: prompt,
                 model: this.models[this.selectedModel] || this.selectedModel,
                 seed: Math.floor(Math.random() * 1000),
                 private: true,
-                system: encodeURIComponent('You are an expert interview coach providing concise answers.')
+                system: 'You are an expert interview coach providing concise answers.'
             };
-            console.log('Request Params:', params);
+            
             const headers = {
+                'Content-Type': 'application/json',
                 'User-Agent': 'MockMate-AI/1.0.4'
             };
-            console.log('Request Headers:', headers);
             
-            const response = await axios.get(`${this.textBaseURL}/${encodedPrompt}`, {
-                params: params,
+            // Use POST instead of GET to avoid URI too large errors for long prompts.
+            const response = await axios.post(this.textBaseURL, requestBody, { 
                 headers: headers,
                 timeout: 25000
             });
+    
             console.log('Fallback API Response Status:', response.status);
             console.log('Fallback API Response Data:', JSON.stringify(response.data, null, 2));
-
+    
             return this.formatResponse(response.data);
         } catch (error) {
             console.error('Fallback API Error:', error);
