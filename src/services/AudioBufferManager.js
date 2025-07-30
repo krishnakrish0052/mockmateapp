@@ -27,7 +27,7 @@ class AudioBufferManager extends EventEmitter {
         });
     }
     
-    addAudioChunk(audioData) {
+    addAudioData(audioData, metadata = {}) {
         const now = Date.now();
         
         // Initialize buffer start time if this is the first chunk
@@ -114,10 +114,10 @@ class AudioBufferManager extends EventEmitter {
         });
         
         // Clear buffer and reset state
-        this.clearBuffer();
+        this.clear();
     }
     
-    clearBuffer() {
+    clear() {
         this.audioBuffer = [];
         this.isSpeechActive = false;
         this.bufferStartTime = 0;
@@ -175,14 +175,41 @@ class AudioBufferManager extends EventEmitter {
     }
     
     // Get current buffer status
-    getStatus() {
+    getStats() {
         const now = Date.now();
+        const bufferSizeBytes = this.audioBuffer.length * 4; // Float32Array
+        
         return {
             bufferLength: this.audioBuffer.length,
             bufferDurationMs: this.bufferStartTime ? now - this.bufferStartTime : 0,
             isSpeechActive: this.isSpeechActive,
             timeSinceLastSpeech: this.lastSpeechTime ? now - this.lastSpeechTime : 0,
-            pendingTranscription: this.pendingTranscription
+            pendingTranscription: this.pendingTranscription,
+            
+            // Simplified stats for UI compatibility
+            bufferSize: this.bufferDurationMs * this.sampleRate / 1000 * 4,
+            usedSize: bufferSizeBytes,
+            segmentCount: this.audioBuffer.length > 0 ? 1 : 0,
+            oldestSegmentAge: this.bufferStartTime ? now - this.bufferStartTime : 0,
+            newestSegmentAge: 0
+        };
+    }
+
+    getRecentSegment(durationMs) {
+        if (!this.audioBuffer || this.audioBuffer.length === 0) {
+            return { data: new Float32Array(), timestamp: 0, duration: 0, sampleRate: this.sampleRate, channels: 1 };
+        }
+        
+        const samplesToGet = Math.floor(this.sampleRate * (durationMs / 1000));
+        const startIndex = Math.max(0, this.audioBuffer.length - samplesToGet);
+        const segmentData = this.audioBuffer.slice(startIndex);
+        
+        return {
+            data: new Float32Array(segmentData),
+            timestamp: this.bufferStartTime + (startIndex / this.sampleRate * 1000),
+            duration: (segmentData.length / this.sampleRate) * 1000,
+            sampleRate: this.sampleRate,
+            channels: 1 // Assuming mono
         };
     }
 }

@@ -1150,10 +1150,11 @@ class MockMateApp {
         // Get audio buffer statistics
         ipcMain.handle('get-audio-buffer-stats', async () => {
             try {
-                return this.audioBufferManager.getStats();
+                const stats = this.audioBufferManager.getStats();
+                return { success: true, stats: stats };
             } catch (error) {
                 console.error('Failed to get audio buffer stats:', error);
-                return { error: error.message };
+                return { success: false, error: error.message };
             }
         });
         
@@ -1192,16 +1193,21 @@ class MockMateApp {
         ipcMain.handle('get-audio-buffer-health', async () => {
             try {
                 const stats = this.audioBufferManager.getStats();
-                const isHealthy = stats.totalSegments > 0 && stats.memoryUsage < (100 * 1024 * 1024); // Less than 100MB
+                const isHealthy = stats.segmentCount > 0 && stats.usedSize < (100 * 1024 * 1024); // Less than 100MB
+                const health = {
+                    isHealthy,
+                    averageLevel: stats.bufferLength > 0 ? (stats.usedSize / stats.bufferSize) : 0
+                };
+
                 return {
                     success: true,
-                    isHealthy,
-                    stats,
+                    health: health,
+                    stats: stats, // Also return full stats
                     timestamp: new Date().toISOString()
                 };
             } catch (error) {
                 console.error('Failed to get audio buffer health:', error);
-                return { error: error.message };
+                return { success: false, error: error.message };
             }
         });
         
