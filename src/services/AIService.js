@@ -41,16 +41,13 @@ class AIService {
 
     async generateResponse(context, onChunk = null) {
         try {
-            const prompt = this.buildPrompt(context);
+            // The prompt is now directly provided in context.prompt
+            const prompt = context.prompt;
             
             // Optimized request configuration
             const requestBody = {
                 model: this.models[this.selectedModel] || this.selectedModel,
                 messages: [
-                    {
-                        role: "system",
-                        content: `You are an expert interview coach providing concise, accurate answers. Keep responses under 150 words, focused, and directly relevant to the question asked.`
-                    },
                     {
                         role: "user",
                         content: prompt
@@ -122,7 +119,46 @@ class AIService {
             return this.formatResponse(response.data);
         } catch (error) {
             console.error('Audio transcription error:', error);
+            
+            // Check if this is a tier/payment error (402)
+            if (error.response && error.response.status === 402) {
+                console.log('Audio model requires higher tier - attempting text-based fallback');
+                return await this.transcribeAudioFallback(audioBuffer);
+            }
+            
             throw new Error('Failed to transcribe audio: ' + error.message);
+        }
+    }
+
+    async transcribeAudioFallback(audioBuffer) {
+        console.log("Attempting transcription with a text-based model as a fallback.");
+        try {
+            // This is a creative workaround. We're sending the raw audio data as text
+            // and asking a powerful text model to make sense of it. This is not
+            // guaranteed to work but is a last-ditch effort.
+            const prompt = `The following is a base64 encoded string of a WAV audio file. Please transcribe the speech from this audio data: ${audioBuffer.toString('base64')}`;
+            
+            const context = {
+                prompt: prompt,
+            };
+
+            // Using the existing generateResponse method which is for text.
+            const response = await this.generateResponse(context);
+            
+            console.log("Fallback transcription response:", response);
+
+            // The response from a text model won't be in the same format as the audio model,
+            // so we just return the text content.
+            return {
+                response: response.response,
+                text: response.response,
+                model: `fallback-${this.selectedModel}`,
+                timestamp: new Date().toISOString(),
+                confidence: 50 // Lower confidence since it's a fallback
+            };
+        } catch (fallbackError) {
+            console.error('Fallback audio transcription failed:', fallbackError);
+            throw new Error('All transcription methods failed, including fallback.');
         }
     }
 
@@ -274,87 +310,7 @@ class AIService {
 
     // Removed _processBuffer as its logic is now integrated into _processStream
 
-    buildPrompt(context) {
-        let prompt = '';
-
-        // Add context information
-        if (context.company) {
-            prompt += `Company: ${context.company}\n`;
-        }
-        if (context.jobDescription) {
-            prompt += `Job Description: ${context.jobDescription}\n`;
-        }
-        if (context.industry) {
-            prompt += `Industry: ${context.industry}\n`;
-        }
-        if (context.resumeSkills) {
-            prompt += `Relevant Skills: ${context.resumeSkills.join(', ')}\n`;
-        }
-
-        // Detect question type if not provided
-        const questionType = context.isBehavioral !== undefined ? 
-            (context.isBehavioral ? 'Behavioral' : 'Technical') : 
-            this.detectQuestionType(context.question);
-
-        prompt += `\nInterview Question (${questionType}): ${context.question}\n\n`;
-
-        // Enhanced prompt template based on question type
-        if (questionType === 'Behavioral') {
-            prompt += this.getBehavioralPromptTemplate(context);
-        } else {
-            prompt += this.getTechnicalPromptTemplate(context);
-        }
-
-        return prompt;
-    }
-
-    detectQuestionType(question) {
-        const behavioralKeywords = [
-            'tell me about a time', 'describe a situation', 'give me an example',
-            'how did you handle', 'what would you do if', 'how do you deal with',
-            'describe your experience', 'tell me about yourself', 'why do you want',
-            'how do you work', 'describe a challenge', 'conflict', 'leadership',
-            'teamwork', 'failure', 'success', 'difficult', 'pressure'
-        ];
-
-        const technicalKeywords = [
-            'algorithm', 'code', 'programming', 'technical', 'system design',
-            'database', 'api', 'framework', 'language', 'architecture',
-            'performance', 'optimization', 'debugging', 'testing', 'deployment',
-            'how would you implement', 'explain how', 'what is the difference',
-            'compare', 'pros and cons'
-        ];
-
-        const lowerQuestion = question.toLowerCase();
-        
-        const behavioralScore = behavioralKeywords.reduce((score, keyword) => 
-            lowerQuestion.includes(keyword) ? score + 1 : score, 0);
-        
-        const technicalScore = technicalKeywords.reduce((score, keyword) => 
-            lowerQuestion.includes(keyword) ? score + 1 : score, 0);
-
-        return behavioralScore > technicalScore ? 'Behavioral' : 'Technical';
-    }
-
-    getBehavioralPromptTemplate(context) {
-        return `Using the STAR method (Situation, Task, Action, Result), provide a compelling behavioral response that demonstrates:
-        - Clear context and situation
-        - Specific task or challenge faced
-        - Concrete actions you took
-        - Measurable results or outcomes
-        
-        Make the response authentic, specific, and relevant to ${context.company || 'the role'}. Draw from professional experiences that showcase leadership, problem-solving, or teamwork skills.`;
-    }
-
-    getTechnicalPromptTemplate(context) {
-        return `Provide a comprehensive technical response that includes:
-        - Clear explanation of concepts
-        - Step-by-step approach or methodology
-        - Best practices and considerations
-        - Real-world application examples
-        
-        Tailor your answer to match the technical requirements ${context.jobDescription ? 'mentioned in the job description' : 'for the role'}. Use specific technologies, frameworks, or methodologies where appropriate.`;
-    }
+    
 
     formatResponse(rawResponse) {
         // Handle different response formats from Pollination API
@@ -554,7 +510,7 @@ class AIService {
     // Fallback method using GET endpoint
     async generateResponseFallback(context) {
         try {
-            const prompt = this.buildPrompt(context);
+            const prompt = context.prompt;
             const encodedPrompt = encodeURIComponent(prompt);
             console.log('Sending request to Fallback GET endpoint:', `${this.textBaseURL}/${encodedPrompt}`);
             const params = {

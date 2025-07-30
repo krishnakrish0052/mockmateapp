@@ -196,10 +196,10 @@ class MockMateController {
         });
         
         // Handle system audio capture start/stop requests from main process
-        ipcRenderer.on('start-system-audio-capture', async () => {
-            console.log('Renderer: Starting system audio capture...');
+        ipcRenderer.on('start-system-audio-capture', async (event, sourceId) => {
+            console.log('Renderer: Starting system audio capture with source ID:', sourceId);
             try {
-                await this.startSystemAudioCapture();
+                await this.startSystemAudioCapture(sourceId);
             } catch (error) {
                 console.error('Renderer: Failed to start system audio capture:', error);
                 ipcRenderer.send('system-audio-error', error.message);
@@ -412,10 +412,11 @@ class MockMateController {
             }
 
             const context = {
-                company: this.companyName || 'Unknown Company',
-                jobDescription: this.jobDescription || 'Software Developer',
+                company: this.companyName,
+                jobDescription: this.jobDescription,
                 question: currentQuestion,
-                model: this.selectedModel
+                model: this.selectedModel,
+                resumeData: this.resumeData // Ensure resumeData is passed
             };
 
             this.showToast('\uD83E\uDD16 Generating AI response...', 'info');
@@ -513,201 +514,54 @@ class MockMateController {
         console.log('Microphone transcription listener initialized');
     }
 
-    async startSystemAudioCapture() {
+    async startSystemAudioCapture(sourceId) {
         try {
-            console.log('Renderer: Starting system audio capture...');
-            console.log('Renderer: Browser:', navigator.userAgent);
-            console.log('Renderer: Platform:', navigator.platform);
-            console.log('Renderer: Running in Electron:', !!window.electron);
+            console.log('Renderer: Starting system audio capture with sourceId:', sourceId);
             
-            // Reset audio monitoring counters
-            this.audioDataReceived = 0;
-            this.lastAudioActivity = 0;
-            
-            // Check if getDisplayMedia is supported
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-                throw new Error('getDisplayMedia is not supported in this browser');
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error('getUserMedia is not supported in this environment');
             }
-            
-            // Show detailed instructions
-            this.showAudioCaptureInstructions();
-            
-            // Method 1: Try getDisplayMedia with audio (modern approach)
-            try {
-                console.log('Renderer: Trying Method 1 - getDisplayMedia with audio constraints...');
-                
-                // Show user what to expect
-                this.showToast('🎯 Select "Share system audio" when prompted!', 'info');
-                
-                this.systemAudioStream = await navigator.mediaDevices.getDisplayMedia({
-                    video: {
-                        mediaSource: 'screen',
-                        width: { max: 1 },
-                        height: { max: 1 }
-                    },
-                    audio: {
-                        echoCancellation: false,
-                        noiseSuppression: false,
-                        autoGainControl: false,
-                        sampleRate: 44100
+
+            this.systemAudioStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    mandatory: {
+                        chromeMediaSource: 'desktop',
+                        chromeMediaSourceId: sourceId
                     }
-                });
-                
-                // Detailed audio track analysis
-                const audioTracks = this.systemAudioStream.getAudioTracks();
-                const videoTracks = this.systemAudioStream.getVideoTracks();
-                
-                console.log('Renderer: Stream details:');
-                console.log('  - Audio tracks:', audioTracks.length);
-                console.log('  - Video tracks:', videoTracks.length);
-                
-                if (audioTracks.length > 0) {
-                    audioTracks.forEach((track, index) => {
-                        console.log(`  - Audio Track ${index}:`, {
-                            label: track.label,
-                            kind: track.kind,
-                            enabled: track.enabled,
-                            muted: track.muted,
-                            readyState: track.readyState,
-                            settings: track.getSettings()
-                        });
-                    });
-                } else {
-                    throw new Error('No audio tracks in display media stream - user may not have selected "Share system audio"');
-                }
-                
-                console.log('Renderer: Method 1 successful - Audio tracks found:', audioTracks.length);
-                
-            } catch (displayMediaError) {
-                console.log('Renderer: Method 1 failed:', displayMediaError.message);
-                console.log('Renderer: Method 1 error details:', displayMediaError);
-
-                // Method 2: Attempt to get audio from main process (Electron-specific)
-                try {
-                    console.log('Renderer: Trying Method 2 - IPC to main process for audio sources...');
-                    
-                    // Get available audio sources from main process
-                    const sources = await ipcRenderer.invoke('get-audio-sources');
-                    if (!sources || sources.length === 0) {
-                        throw new Error('No audio sources returned from main process');
-                    }
-                    
-                    console.log('Renderer: Received audio sources from main:', sources);
-                    
-                    // Find system audio source (heuristic)
-                    const systemAudioSource = sources.find(s => 
-                        s.name.toLowerCase().includes('system') || 
-                        s.name.toLowerCase().includes('loopback') || 
-                        s.name.toLowerCase().includes('stereo mix')
-                    );
-                    
-                    if (!systemAudioSource) {
-                        throw new Error('Could not identify a system audio source');
-                    }
-                    
-                    console.log('Renderer: Selected system audio source:', systemAudioSource);
-                    
-                    // Request stream from main process with selected source ID
-                    this.systemAudioStream = await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            mandatory: {
-                                chromeMediaSource: 'desktop',
-                                chromeMediaSourceId: systemAudioSource.id
-                            }
-                        },
-                        video: {
-                            mandatory: {
-                                chromeMediaSource: 'desktop'
-                            }
-                        }
-                    });
-
-                    const audioTracks = this.systemAudioStream.getAudioTracks();
-                    if (audioTracks.length === 0) {
-                        throw new Error('No audio tracks in stream from main process source');
-                    }
-
-                    console.log('Renderer: Method 2 successful - Audio stream acquired from main process');
-
-                } catch (ipcError) {
-                    console.log('Renderer: Method 2 failed:', ipcError.message);
-                    console.log('Renderer: Method 2 error details:', ipcError);
-
-                    // Removed demonstration mode - throw error if all methods fail
-                    throw new Error('All audio capture methods failed');
-                }
-            }
-            
-            // Set up audio processing (common for all methods)
-            const audioContext = new AudioContext();
-            const audioSource = audioContext.createMediaStreamSource(this.systemAudioStream);
-            
-            // Create a script processor to handle audio data
-            this.systemAudioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
-            
-            this.systemAudioProcessor.onaudioprocess = (event) => {
-                const inputBuffer = event.inputBuffer;
-                const outputBuffer = event.outputBuffer;
-                
-                // Copy input to output (passthrough)
-                for (let channel = 0; channel < outputBuffer.numberOfChannels; channel++) {
-                    const inputData = inputBuffer.getChannelData(channel);
-                    const outputData = outputBuffer.getChannelData(channel);
-                    for (let sample = 0; sample < inputBuffer.length; sample++) {
-                        outputData[sample] = inputData[sample];
+                },
+                video: {
+                    mandatory: {
+                        chromeMediaSource: 'desktop',
+                        chromeMediaSourceId: sourceId
                     }
                 }
-                
-                // Send audio data to main process for processing
-                const audioData = inputBuffer.getChannelData(0);
-                const audioArray = Array.from(audioData);
-                
-                // Calculate RMS for debugging
-                const rms = Math.sqrt(audioArray.reduce((sum, sample) => sum + sample * sample, 0) / audioArray.length);
-                
-                // Log audio levels for debugging
-                console.log(`Audio RMS level: ${rms.toFixed(5)}`);
-                this.updateAudioDebugInfo(rms);
-                
-                // Only send if there's significant audio activity
-                if (rms > 0.001) { // Lower threshold for demo mode
-                    this.audioDataReceived++;
-                    this.lastAudioActivity = Date.now();
-                    
-                    ipcRenderer.send('system-audio-data', {
-                        data: audioArray,
-                        sampleRate: audioContext.sampleRate,
-                        timestamp: Date.now()
-                    });
-                    
-                    console.log(`Sent audio data chunk #${this.audioDataReceived}, RMS: ${rms.toFixed(5)}`);
-                }
-            };
-            
-            // Connect the audio graph (no output to speakers to avoid feedback)
-            audioSource.connect(this.systemAudioProcessor);
-            // Removed: this.systemAudioProcessor.connect(audioContext.destination); // This was causing feedback
-            
-            // Listen for track ending (if available)
-            const audioTracks = this.systemAudioStream.getAudioTracks();
-            audioTracks.forEach(track => {
-                track.addEventListener('ended', () => {
-                    console.log('Renderer: Audio track ended');
-                    this.stopSystemAudioCapture();
-                    ipcRenderer.send('system-audio-error', 'Audio track ended');
-                });
             });
-            
-            console.log('Renderer: System audio capture started successfully');
-            ipcRenderer.send('system-audio-started');
-            
-        } catch (error) {
-            console.error('Renderer: System audio capture failed completely:', error);
-            if (error.name === 'NotAllowedError') {
-                throw new Error('Permission denied. Please allow screen/audio sharing to capture system audio.');
-            } else {
-                throw new Error(`System audio capture failed: ${error.message}. This may be due to system limitations or browser restrictions.`);
+
+            const audioTracks = this.systemAudioStream.getAudioTracks();
+            if (audioTracks.length === 0) {
+                throw new Error('No audio tracks in the captured stream.');
             }
+            
+            console.log('Renderer: System audio stream acquired successfully');
+
+            const audioContext = new AudioContext();
+            const source = audioContext.createMediaStreamSource(this.systemAudioStream);
+            const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+            processor.onaudioprocess = (e) => {
+                const inputData = e.inputBuffer.getChannelData(0);
+                ipcRenderer.send('system-audio-data', { data: Array.from(inputData) });
+            };
+
+            source.connect(processor);
+            processor.connect(audioContext.destination); 
+
+            this.systemAudioProcessor = processor;
+
+            ipcRenderer.send('system-audio-started');
+        } catch (error) {
+            console.error('Renderer: Failed to start system audio capture:', error);
+            ipcRenderer.send('system-audio-error', error.message);
         }
     }
     

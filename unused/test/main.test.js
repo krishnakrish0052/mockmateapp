@@ -1,4 +1,5 @@
 const path = require('path');
+const MockMateApp = require('../../src/main');
 
 // Mock Electron modules using jest.mock
 jest.mock('electron', () => ({
@@ -31,6 +32,8 @@ jest.mock('electron', () => ({
             on: jest.fn(),
         },
         getNativeWindowHandle: jest.fn(() => ({})),
+        setContentProtection: jest.fn(), // Added setContentProtection mock
+        setBounds: jest.fn(), // Added setBounds mock
     })),
     globalShortcut: {
         register: jest.fn(),
@@ -71,13 +74,13 @@ jest.mock('dotenv', () => ({
 }));
 
 // Mock services to prevent actual file operations/network calls during main process tests
-jest.mock('../src/services/AIService', () => jest.fn(() => ({
+jest.mock('../../src/services/AIService', () => jest.fn(() => ({
     generateResponse: jest.fn(() => Promise.resolve({ response: 'Mock AI Response' })),
     setModel: jest.fn(),
     getAvailableModels: jest.fn(() => Promise.resolve([])),
 }))
 );
-jest.mock('../src/services/ScreenCaptureService', () => jest.fn(() => ({
+jest.mock('../../src/services/ScreenCaptureService', () => jest.fn(() => ({
     captureFullScreen: jest.fn(() => Promise.resolve({ success: true, imageData: 'mockImageData' })),
     captureSpecificWindow: jest.fn(() => Promise.resolve({ success: true, imageData: 'mockImageData' })),
     captureRegion: jest.fn(() => Promise.resolve({ success: true, imageData: 'mockImageData' })),
@@ -85,19 +88,19 @@ jest.mock('../src/services/ScreenCaptureService', () => jest.fn(() => ({
     detectInterviewPlatforms: jest.fn(() => Promise.resolve({ success: true, platforms: [] })),
 }))
 );
-jest.mock('../src/services/OCRService', () => jest.fn(() => ({
+jest.mock('../../src/services/OCRService', () => jest.fn(() => ({
     performOCR: jest.fn(() => Promise.resolve({ processedText: 'mock OCR text' })),
     getPerformanceStats: jest.fn(() => ({})),
     healthCheck: jest.fn(() => Promise.resolve({ status: 'healthy' })),
 }))
 );
-jest.mock('../src/services/QuestionDetectionService', () => jest.fn(() => ({
+jest.mock('../../src/services/QuestionDetectionService', () => jest.fn(() => ({
     detectQuestions: jest.fn(() => Promise.resolve({ success: true, questions: [] })),
     getStats: jest.fn(() => ({})),
     healthCheck: jest.fn(() => Promise.resolve({ status: 'healthy' })),
 }))
 );
-jest.mock('../src/services/DocumentIntelligenceService', () => jest.fn(() => ({
+jest.mock('../../src/services/DocumentIntelligenceService', () => jest.fn(() => ({
     analyzeResumeFile: jest.fn(() => Promise.resolve({ success: true, data: {} })),
     analyzeResumeText: jest.fn(() => Promise.resolve({ success: true, data: {} })),
     analyzeJobDescription: jest.fn(() => Promise.resolve({ success: true, data: {} })),
@@ -109,13 +112,13 @@ jest.mock('../src/services/DocumentIntelligenceService', () => jest.fn(() => ({
     healthCheck: jest.fn(() => Promise.resolve({ status: 'healthy' })),
 }))
 );
-jest.mock('../src/services/StealthService', () => jest.fn(() => ({
+jest.mock('../../src/services/StealthService', () => jest.fn(() => ({
     toggleStealthMode: jest.fn(() => Promise.resolve(true)),
     applyStealthMeasures: jest.fn(() => Promise.resolve()),
     getStatus: jest.fn(() => Promise.resolve({ enabled: false })),
 }))
 );
-jest.mock('../src/services/DatabaseService', () => jest.fn(() => ({
+jest.mock('../../src/services/DatabaseService', () => jest.fn(() => ({
     initialize: jest.fn(() => Promise.resolve(true)),
     createSession: jest.fn(() => Promise.resolve({ sessionId: 'mock-session-id' })),
     endSession: jest.fn(() => Promise.resolve(true)),
@@ -140,28 +143,38 @@ jest.mock('../src/services/DatabaseService', () => jest.fn(() => ({
 );
 
 // Import the actual MockMateApp after mocks are set up
-const MockMateApp = require('../src/main');
+
+
+let mockMateAppInstance;
 
 describe('MockMate Desktop Application Tests', () => {
-    let mockMateAppInstance;
 
     beforeAll(async () => {
         // Clear all mocks before each test suite
         jest.clearAllMocks();
-        mockMateAppInstance = new MockMateApp();
         // Mock the initialize method to prevent actual service initialization
         // and avoid issues with unmocked dependencies during initialization.
-        mockMateAppInstance.initialize = jest.fn(async () => {
-            mockMateAppInstance.aiService = {}; // Mock a simple object
-            mockMateAppInstance.screenCaptureService = {};
-            mockMateAppInstance.ocrService = {};
-            mockMateAppInstance.questionDetectionService = {};
-            mockMateAppInstance.documentIntelligenceService = {};
-            mockMateAppInstance.stealthService = {};
-            mockMateAppInstance.databaseService = { initialize: jest.fn() };
-            mockMateAppInstance.isInitialized = true;
+        MockMateApp.prototype.initialize = jest.fn(async function() {
+            const { app } = require('electron'); // Import app here
+            await app.whenReady(); // Ensure app.whenReady is called
+            this.aiService = {}; // Mock a simple object
+            this.screenCaptureService = {};
+            this.ocrService = {};
+            this.questionDetectionService = {};
+            this.documentIntelligenceService = {};
+            this.stealthService = {};
+            this.databaseService = { initialize: jest.fn() };
+            this.isInitialized = true;
             console.log('MockMate AI initialized successfully');
+
+            // Call the original methods that register IPC handlers and shortcuts
+            this.createControlWindow();
+            this.createResponseWindow();
+            this.setupGlobalShortcuts();
+            this.setupIPCHandlers();
+            this.setupModelIPCHandlers();
         });
+        mockMateAppInstance = new MockMateApp();
         await mockMateAppInstance.initialize();
     });
 

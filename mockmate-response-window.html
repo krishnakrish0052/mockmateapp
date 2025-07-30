@@ -356,7 +356,7 @@
                 if (data.isFinal) {
                     this.isStreaming = false;
                     // Apply final formatting to the full response
-                    this.streamedResponseEl.innerHTML = this.formatResponse(this.rawStreamedContent);
+                    this.streamedResponseEl.innerHTML = this.formatResponse(data.fullResponse || this.rawStreamedContent);
                     this.requestResize();
                     return; // Stop processing further for this final chunk
                 }

@@ -37,6 +37,7 @@ class MockMateApp {
         this._aiService = null;
         this._systemAudioService = null;
         this._screenCaptureService = null;
+        this._postgresService = null;
         /*
         this._ocrService = null;
         this._questionDetectionService = null;
@@ -124,7 +125,23 @@ class MockMateApp {
         return this._speechService;
     }
 
+    get postgresService() {
+        if (!this._postgresService) {
+            const PostgresService = require('./services/PostgresService');
+            this._postgresService = PostgresService;
+            console.log('PostgresService lazy-loaded successfully');
+        }
+        return this._postgresService;
+    }
+
     async initialize() {
+        // Test PostgreSQL connection
+        try {
+            const res = await this.postgresService.query('SELECT NOW()');
+            console.log('PostgreSQL connected successfully. Current database time:', res[0].now);
+        } catch (err) {
+            console.error('PostgreSQL connection error:', err);
+        }
         await app.whenReady();
 
         // Create windows immediately for faster startup
@@ -818,6 +835,41 @@ class MockMateApp {
             return true;
         });
 
+        // Handle setting company name and storing it in DB
+        ipcMain.handle('set-company-name', async (event, companyName) => {
+            try {
+                const company = await this.postgresService.insertCompany(companyName);
+                this.appState.companyName = company.name;
+                this.appState.companyId = company.id;
+                console.log('Company name set and stored:', company);
+                return { success: true, company };
+            } catch (error) {
+                console.error('Failed to set company name:', error);
+                return { success: false, error: error.message };
+            }
+        });
+
+        // Handle setting job description and storing it in DB
+        ipcMain.handle('set-job-description', async (event, jobDescription, jobTitle = 'Untitled') => {
+            try {
+                if (!this.appState.companyId) {
+                    // If no company is set, create a default one or prompt user
+                    const defaultCompany = await this.postgresService.insertCompany('Default Company');
+                    this.appState.companyId = defaultCompany.id;
+                    this.appState.companyName = defaultCompany.name;
+                    console.log('No company set, created default company:', defaultCompany);
+                }
+                const jd = await this.postgresService.insertJobDescription(this.appState.companyId, jobTitle, jobDescription);
+                this.appState.jobDescription = jd.description;
+                this.appState.jobDescriptionId = jd.id;
+                console.log('Job description set and stored:', jd);
+                return { success: true, jobDescription: jd };
+            } catch (error) {
+                console.error('Failed to set job description:', error);
+                return { success: false, error: error.message };
+            }
+        });
+
         // New OCR and Question Detection handlers
         
         // Perform OCR on image/screen
@@ -985,6 +1037,15 @@ class MockMateApp {
                 });
                 
                 if (analysisResult.success) {
+                    // Store resume data in PostgreSQL
+                    const resumeRecord = await this.postgresService.insertResume(
+                        '', // Candidate name (can be added later or extracted if available)
+                        filePath,
+                        analysisResult.data.extractedText,
+                        analysisResult.data
+                    );
+                    console.log('Resume data stored in DB with ID:', resumeRecord.id);
+
                     // Update app state with resume data for better interview responses
                     this.appState.resumeData = analysisResult.data;
                     
@@ -1003,7 +1064,8 @@ class MockMateApp {
                         filePath: filePath,
                         data: analysisResult.data,
                         insights: analysisResult.insights,
-                        processingTime: analysisResult.processingTime
+                        processingTime: analysisResult.processingTime,
+                        resumeId: resumeRecord.id
                     };
                 } else {
                     return { error: analysisResult.error };
@@ -1148,11 +1210,48 @@ class MockMateApp {
         this.showLoadingResponse();
         
         try {
+            let promptContext = "";
+            if (this.appState.companyName) {
+                promptContext += `Company: ${this.appState.companyName}
+`;
+            }
+            if (this.appState.jobDescription) {
+                promptContext += `Job Description: ${this.appState.jobDescription}
+`;
+            }
+            if (this.appState.resumeData) {
+                promptContext += `Candidate Resume Data:
+`;
+                if (this.appState.resumeData.skills) {
+                    promptContext += `  Skills: ${this.appState.resumeData.skills.join(', ')}
+`;
+                }
+                if (this.appState.resumeData.experience) {
+                    promptContext += `  Experience: ${JSON.stringify(this.appState.resumeData.experience, null, 2)}
+`;
+                }
+                if (this.appState.resumeData.education) {
+                    promptContext += `  Education: ${JSON.stringify(this.appState.resumeData.education, null, 2)}
+`;
+                }
+                if (this.appState.resumeData.summary) {
+                    promptContext += `  Summary: ${this.appState.resumeData.summary}
+`;
+                }
+            }
+
+            const question = this.appState.currentQuestion || 'Please provide a general interview response.';
+            const fullPrompt = `${promptContext}
+Question: ${question}
+
+Your expert answer:`;
+
             const context = {
-                company: this.appState.companyName,
+                prompt: fullPrompt,
+                model: this.appState.selectedModel,
+                companyName: this.appState.companyName,
                 jobDescription: this.appState.jobDescription,
-                question: this.appState.currentQuestion || 'Please provide a general interview response.',
-                model: this.appState.selectedModel
+                resumeData: this.appState.resumeData
             };
             
             const onChunk = (chunk) => {
@@ -1698,26 +1797,8 @@ class MockMateApp {
     }
 }
 
-// Initialize the application
+// Initialize the app
 const mockMateApp = new MockMateApp();
+mockMateApp.initialize().catch(console.error);
 
-// App event handlers
-app.whenReady().then(() => {
-    mockMateApp.initialize().catch(console.error);
-});
-
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-        app.quit();
-    }
-});
-
-app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-        mockMateApp.initialize().catch(console.error);
-    }
-});
-
-app.on('will-quit', () => {
-    globalShortcut.unregisterAll();
-});
+module.exports = MockMateApp;
