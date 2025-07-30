@@ -105,10 +105,14 @@ class AIService {
     async transcribeAudio(audioBuffer) {
         try {
             const audioBase64 = audioBuffer.toString('base64');
+            
+            // Get STT model from environment variable, default to 'openai-audio'
+            const sttModel = process.env.STT_MODEL || 'openai-audio';
+            console.log(`AIService: Using STT model for transcription: ${sttModel}`);
 
-            // Following Pollinations API documentation for openai-audio model
+            // Following Pollinations API documentation for audio transcription
             const requestBody = {
-                model: 'openai-audio',
+                model: sttModel,
                 messages: [
                     {
                         role: 'user',

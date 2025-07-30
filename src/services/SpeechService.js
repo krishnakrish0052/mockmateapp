@@ -8,7 +8,10 @@ class SpeechService extends EventEmitter {
     constructor() {
         super();
         this.aiService = new AIService();
-        this.aiService.setModel('openai-audio');
+        // Get STT model from environment variable, default to 'openai-audio'
+        const sttModel = process.env.STT_MODEL || 'openai-audio';
+        console.log(`SpeechService: Using STT model: ${sttModel}`);
+        this.aiService.setModel(sttModel);
     }
 
     async transcribe(audioData) {
