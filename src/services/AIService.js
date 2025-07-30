@@ -68,7 +68,7 @@ class AIService {
             const startTime = Date.now();
             const response = await fetch(this.openaiEndpoint, {
                 method: 'POST',
-                headers,
+                headers: this.getAuthHeaders(),
                 body: JSON.stringify(requestBody),
                 signal: AbortSignal.timeout(15000) // Reduced timeout for faster failure
             });
@@ -694,9 +694,18 @@ class AIService {
             'User-Agent': 'MockMate-AI/1.0.4'
         };
 
+        // Add Authorization header if API key is available
         if (process.env.POLLINATION_API_KEY) {
             headers['Authorization'] = `Bearer ${process.env.POLLINATION_API_KEY}`;
         }
+
+        // Add Referer header for tier authentication based on Pollinations API docs
+        // This helps identify the application/domain for tier access
+        headers['Referer'] = process.env.POLLINATION_REFERER || 'https://pollinations.ai/';
+        
+        // Add additional headers for seed tier access
+        headers['Accept'] = 'application/json';
+        headers['Cache-Control'] = 'no-cache';
 
         return headers;
     }

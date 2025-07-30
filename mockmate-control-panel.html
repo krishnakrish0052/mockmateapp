@@ -242,6 +242,18 @@
             animation: fadeIn 0.3s ease; transition: all 0.2s ease;
             flex-grow: 1;
             font-size: 18px;
+            white-space: nowrap;
+            overflow-x: auto;
+            display: block;
+            /* Hide horizontal scrollbar */
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* Internet Explorer 10+ */
+            /* Left to right text direction */
+            direction: ltr;
+            text-align: left;
+        }
+        .transcription-text::-webkit-scrollbar {
+            display: none; /* WebKit */
         }
         .transcription-text.active { color: var(--text-primary); opacity: 1; font-style: normal; }
         .transcription-text.listening { color: var(--accent); }
@@ -336,6 +348,14 @@
             background: var(--primary-bg);
             color: var(--text-primary);
             padding: 8px;
+        }
+        /* Hide scrollbar for model dropdown but keep it scrollable */
+        .model-dropdown {
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* Internet Explorer 10+ */
+        }
+        .model-dropdown::-webkit-scrollbar {
+            display: none; /* WebKit */
         }
         .material-icons {
             font-family: 'Material Icons' !important;

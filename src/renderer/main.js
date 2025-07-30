@@ -250,6 +250,7 @@ class MockMateController {
                 transcriptionEl.textContent += ` ${transcription}`;
                 transcriptionEl.classList.add('active');
                 transcriptionEl.classList.remove('listening');
+                transcriptionEl.scrollLeft = 0; // Auto-scroll to show text from the beginning (left-to-right)
                 this.currentQuestion = transcriptionEl.textContent;
             }
         });
