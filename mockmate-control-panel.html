@@ -201,6 +201,42 @@
             justify-content: space-between;
             border-bottom: none; position: relative; z-index: 2;
         }
+        .audio-buffer-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-left: 12px;
+            padding: 4px 8px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .audio-buffer-status.healthy {
+            color: var(--success);
+            border-color: rgba(0, 200, 150, 0.3);
+            background: rgba(0, 200, 150, 0.05);
+        }
+        .audio-buffer-status.warning {
+            color: var(--warning);
+            border-color: rgba(255, 165, 2, 0.3);
+            background: rgba(255, 165, 2, 0.05);
+        }
+        .audio-buffer-status.error {
+            color: var(--danger);
+            border-color: rgba(255, 71, 87, 0.3);
+            background: rgba(255, 71, 87, 0.05);
+        }
+        .audio-buffer-icon {
+            font-size: 14px !important;
+            animation: pulse 2s infinite;
+        }
+        .audio-buffer-text {
+            font-weight: 500;
+            white-space: nowrap;
+        }
         .transcription-text { 
             color: var(--text-secondary); font-style: italic; opacity: 0.8; 
             animation: fadeIn 0.3s ease; transition: all 0.2s ease;
@@ -424,6 +460,10 @@
             </div>
             <div class="transcription-area">
                 <div id="transcriptionText" class="transcription-text">Audio functionality disabled - Use manual input or screen analysis...</div>
+                <div id="audioBufferStatus" class="audio-buffer-status" style="display:none;">
+                    <span class="material-icons audio-buffer-icon">memory</span>
+                    <span class="audio-buffer-text">Buffer: 0KB</span>
+                </div>
                 <button id="clearBtn" class="utility-btn clear-transcription-btn" title="Clear Transcription"><span class="material-icons">close</span></button>
             </div>
             <div class="input-section">

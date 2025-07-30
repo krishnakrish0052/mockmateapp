@@ -38,6 +38,7 @@ class MockMateApp {
         this._systemAudioService = null;
         this._screenCaptureService = null;
         this._postgresService = null;
+        this._audioBufferManager = null;
         /*
         this._ocrService = null;
         this._questionDetectionService = null;
@@ -114,6 +115,15 @@ class MockMateApp {
             console.log('DocumentIntelligenceService lazy-loaded successfully');
         }
         return this._documentIntelligenceService;
+    }
+
+    get audioBufferManager() {
+        if (!this._audioBufferManager) {
+            const AudioBufferManager = require('./services/AudioBufferManager');
+            this._audioBufferManager = new AudioBufferManager();
+            console.log('AudioBufferManager lazy-loaded successfully');
+        }
+        return this._audioBufferManager;
     }
 
     get speechService() {
@@ -716,6 +726,15 @@ class MockMateApp {
         // Handle system audio data from renderer
         ipcMain.on('system-audio-data', (event, audioData) => {
             console.log('Main: Received system audio data:', audioData.data.length, 'samples');
+            
+            // Store audio data in buffer manager for analysis and processing
+            this.audioBufferManager.addAudioData(audioData.data, {
+                timestamp: Date.now(),
+                sampleRate: audioData.sampleRate || 44100,
+                channels: audioData.channels || 2,
+                source: 'system-audio'
+            });
+            
             // Pass the audio data to the system audio service for processing
             if (this._systemAudioService) {
                 this._systemAudioService.handleAudioData(audioData);
@@ -1125,6 +1144,95 @@ class MockMateApp {
                 console.log('Response window not available for resizing');
             }
         });
+
+        // AudioBufferManager IPC handlers for renderer communication and control
+        
+        // Get audio buffer statistics
+        ipcMain.handle('get-audio-buffer-stats', async () => {
+            try {
+                return this.audioBufferManager.getStats();
+            } catch (error) {
+                console.error('Failed to get audio buffer stats:', error);
+                return { error: error.message };
+            }
+        });
+        
+        // Get recent audio segment for analysis
+        ipcMain.handle('get-recent-audio-segment', async (event, durationMs = 5000) => {
+            try {
+                const segment = this.audioBufferManager.getRecentSegment(durationMs);
+                return {
+                    success: true,
+                    segment: {
+                        data: Array.from(segment.data), // Convert Float32Array to regular array for IPC
+                        timestamp: segment.timestamp,
+                        duration: segment.duration,
+                        sampleRate: segment.sampleRate,
+                        channels: segment.channels
+                    }
+                };
+            } catch (error) {
+                console.error('Failed to get recent audio segment:', error);
+                return { error: error.message };
+            }
+        });
+        
+        // Clear audio buffer
+        ipcMain.handle('clear-audio-buffer', async () => {
+            try {
+                this.audioBufferManager.clear();
+                return { success: true };
+            } catch (error) {
+                console.error('Failed to clear audio buffer:', error);
+                return { error: error.message };
+            }
+        });
+        
+        // Get audio buffer health status
+        ipcMain.handle('get-audio-buffer-health', async () => {
+            try {
+                const stats = this.audioBufferManager.getStats();
+                const isHealthy = stats.totalSegments > 0 && stats.memoryUsage < (100 * 1024 * 1024); // Less than 100MB
+                return {
+                    success: true,
+                    isHealthy,
+                    stats,
+                    timestamp: new Date().toISOString()
+                };
+            } catch (error) {
+                console.error('Failed to get audio buffer health:', error);
+                return { error: error.message };
+            }
+        });
+        
+        // Search for audio patterns (for question detection)
+        ipcMain.handle('search-audio-patterns', async (event, options = {}) => {
+            try {
+                // This could be extended to work with question detection service
+                const recentSegment = this.audioBufferManager.getRecentSegment(options.duration || 10000);
+                
+                // Basic pattern analysis - could be enhanced with more sophisticated algorithms
+                const patterns = {
+                    hasAudio: recentSegment.data.length > 0,
+                    averageVolume: this.calculateAverageVolume(recentSegment.data),
+                    peakVolume: this.calculatePeakVolume(recentSegment.data),
+                    silenceRatio: this.calculateSilenceRatio(recentSegment.data)
+                };
+                
+                return {
+                    success: true,
+                    patterns,
+                    segmentInfo: {
+                        duration: recentSegment.duration,
+                        sampleRate: recentSegment.sampleRate,
+                        dataLength: recentSegment.data.length
+                    }
+                };
+            } catch (error) {
+                console.error('Failed to search audio patterns:', error);
+                return { error: error.message };
+            }
+        });
     }
 
     
@@ -1144,50 +1252,6 @@ class MockMateApp {
         
 
         console.log('Model IPC handlers setup completed');
-    }
-
-    toggleWindowVisibility() {
-        if (this.controlWindow) {
-            if (this.controlWindow.isVisible()) {
-                this.controlWindow.hide();
-            } else {
-                this.controlWindow.show();
-            }
-        }
-        console.log(`Control window visibility toggled.`);
-    }
-
-    toggleWindowVisibility() {
-        if (this.controlWindow) {
-            if (this.controlWindow.isVisible()) {
-                this.controlWindow.hide();
-            } else {
-                this.controlWindow.show();
-            }
-        }
-        console.log(`Control window visibility toggled.`);
-    }
-
-    toggleWindowVisibility() {
-        if (this.controlWindow) {
-            if (this.controlWindow.isVisible()) {
-                this.controlWindow.hide();
-            } else {
-                this.controlWindow.show();
-            }
-        }
-        console.log(`Control window visibility toggled.`);
-    }
-
-    toggleWindowVisibility() {
-        if (this.controlWindow) {
-            if (this.controlWindow.isVisible()) {
-                this.controlWindow.hide();
-            } else {
-                this.controlWindow.show();
-            }
-        }
-        console.log(`Control window visibility toggled.`);
     }
 
     toggleWindowVisibility() {
@@ -1320,8 +1384,17 @@ Your expert answer:`;
                 console.log('🔊 Starting system sound capture...');
                 await this.systemAudioService.startSystemAudioCapture();
                 
-                // Set up audio data handler for future STT implementation
+                // Set up audio data handler with AudioBufferManager integration
                 this.systemAudioService.on('data', (audioData) => {
+                    // Store audio data in buffer manager for analysis and processing
+                    this.audioBufferManager.addAudioData(audioData.data, {
+                        timestamp: Date.now(),
+                        sampleRate: audioData.sampleRate || 44100,
+                        channels: audioData.channels || 2,
+                        source: 'system-audio-service'
+                    });
+                    
+                    // Process with speech service for transcription
                     this.speechService.transcribe(audioData.data);
                 });
 
@@ -1794,6 +1867,39 @@ Your expert answer:`;
             this.responsePosition = { x: responseX, y: responseY };
             console.log(`Response window reset to position: ${responseX}, ${responseY} and size: ${this.currentSize.width}x${this.responseSize.height}`);
         }
+    }
+
+    // Helper methods for audio analysis (used in IPC handlers)
+    calculateAverageVolume(audioData) {
+        if (!audioData || audioData.length === 0) return 0;
+        let sum = 0;
+        for (let i = 0; i < audioData.length; i++) {
+            sum += Math.abs(audioData[i]);
+        }
+        return sum / audioData.length;
+    }
+
+    calculatePeakVolume(audioData) {
+        if (!audioData || audioData.length === 0) return 0;
+        let peak = 0;
+        for (let i = 0; i < audioData.length; i++) {
+            const absValue = Math.abs(audioData[i]);
+            if (absValue > peak) {
+                peak = absValue;
+            }
+        }
+        return peak;
+    }
+
+    calculateSilenceRatio(audioData, silenceThreshold = 0.01) {
+        if (!audioData || audioData.length === 0) return 1; // All silent if no data
+        let silentSamples = 0;
+        for (let i = 0; i < audioData.length; i++) {
+            if (Math.abs(audioData[i]) < silenceThreshold) {
+                silentSamples++;
+            }
+        }
+        return silentSamples / audioData.length;
     }
 }
 
