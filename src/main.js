@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer, clipboard } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer, clipboard, session } = require('electron');
 
 // Enable live reload for Electron only in development - optimized for performance
 if (process.env.NODE_ENV === 'development') {
@@ -35,21 +35,15 @@ class MockMateApp {
         // Services - will be lazy-loaded via getters when first accessed
         // No need to initialize these as properties since we use getters
         this._aiService = null;
-        this._systemAudioService = null;
         this._screenCaptureService = null;
         this._postgresService = null;
-        this._audioBufferManager = null;
         /*
         this._ocrService = null;
         this._questionDetectionService = null;
         this._documentIntelligenceService = null;
         */
-        this._speechService = null;
         // App state
         this.appState = {
-            isListening: false,
-            isMicEnabled: false,
-            isSystemSoundEnabled: false,
             isAIWorking: false,
             currentQuestion: '',
             companyName: '',
@@ -57,7 +51,7 @@ class MockMateApp {
             selectedModel: 'openai'
         };
     }
-
+    
     // Lazy loading getters for services - services are loaded only when accessed
     get aiService() {
         if (!this._aiService) {
@@ -68,18 +62,6 @@ class MockMateApp {
         return this._aiService;
     }
 
-    get systemAudioService() {
-        if (!this._systemAudioService) {
-            const SystemAudioService = require('./services/SystemAudioService');
-            this._systemAudioService = new SystemAudioService();
-            // Set the control window reference for communication with renderer
-            if (this.controlWindow) {
-                this._systemAudioService.setControlWindow(this.controlWindow);
-            }
-            console.log('SystemAudioService lazy-loaded successfully');
-        }
-        return this._systemAudioService;
-    }
 
     get screenCaptureService() {
         if (!this._screenCaptureService) {
@@ -117,23 +99,7 @@ class MockMateApp {
         return this._documentIntelligenceService;
     }
 
-    get audioBufferManager() {
-        if (!this._audioBufferManager) {
-            const AudioBufferManager = require('./services/AudioBufferManager');
-            this._audioBufferManager = new AudioBufferManager();
-            console.log('AudioBufferManager lazy-loaded successfully');
-        }
-        return this._audioBufferManager;
-    }
 
-    get speechService() {
-        if (!this._speechService) {
-            const SpeechService = require('./services/SpeechService');
-            this._speechService = new SpeechService();
-            console.log('SpeechService lazy-loaded successfully');
-        }
-        return this._speechService;
-    }
 
     get postgresService() {
         if (!this._postgresService) {
@@ -144,6 +110,7 @@ class MockMateApp {
         return this._postgresService;
     }
 
+
     async initialize() {
         // Test PostgreSQL connection
         try {
@@ -153,6 +120,9 @@ class MockMateApp {
             console.error('PostgreSQL connection error:', err);
         }
         await app.whenReady();
+        
+        // Set up automatic permission handling for desktop capture
+        this.setupAutomaticPermissions();
 
         // Create windows immediately for faster startup
         this.createControlWindow();
@@ -204,10 +174,6 @@ class MockMateApp {
         console.log('Loading control panel HTML...');
         this.controlWindow.loadFile(path.join(__dirname, '../mockmate-control-panel.html'));
         
-        // Update system audio service with control window reference if it's already loaded
-        if (this._systemAudioService) {
-            this._systemAudioService.setControlWindow(this.controlWindow);
-        }
         
         
 
@@ -399,22 +365,12 @@ class MockMateApp {
 
 
     setupGlobalShortcuts() {
-        // 1. System Sound Enable/Disable: Shift+S
-        globalShortcut.register('Shift+S', () => {
-            this.toggleSystemSound();
-        });
-
         // 2. AI Answer Trigger: Ctrl+Z
         globalShortcut.register('CommandOrControl+Z', () => {
             this.triggerAIAnswer();
         });
 
         
-
-        // 4. Mic Enable/Disable: Ctrl+Q
-        globalShortcut.register('CommandOrControl+Q', () => {
-            this.toggleMicrophone();
-        });
 
         // 5. Analyze Screen: Ctrl+A
         globalShortcut.register('CommandOrControl+A', () => {
@@ -473,6 +429,56 @@ class MockMateApp {
         });
 
         console.log('Global shortcuts registered successfully');
+    }
+
+    setupAutomaticPermissions() {
+        try {
+            console.log('Setting up automatic permission handling for desktop capture...');
+            
+            // Set up session permission request handler to automatically grant permissions
+            session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+                console.log(`Permission request for: ${permission}`);
+                
+                // Automatically grant permissions for media capture
+                if (permission === 'media' || permission === 'camera' || permission === 'display-capture') {
+                    console.log(`[OK] Auto-granting permission for: ${permission}`);
+                    callback(true);
+                } else {
+                    console.log(`[?] Unknown permission request: ${permission}, denying by default`);
+                    callback(false);
+                }
+            });
+            
+            // Also set permission check handler for more granular control
+            session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+                console.log(`Permission check for: ${permission} from origin: ${requestingOrigin}`);
+                
+                // Allow media permissions for our app
+                if (permission === 'media' || permission === 'camera' || permission === 'display-capture') {
+                    console.log(`[OK] Auto-allowing permission check for: ${permission}`);
+                    return true;
+                }
+                
+                return false;
+            });
+            
+            // Handle device permission requests specifically for desktop capture
+            session.defaultSession.setDevicePermissionHandler((details) => {
+                console.log('Device permission request:', details);
+                
+                // Auto-grant for video devices
+                if (details.deviceType === 'camera' || details.deviceType === 'screen') {
+                    console.log(`[OK] Auto-granting device permission for: ${details.deviceType}`);
+                    return true;
+                }
+                
+                return false;
+            });
+            
+            console.log('[OK] Automatic permission handling setup complete');
+        } catch (error) {
+            console.error('[ERROR] Failed to setup automatic permissions:', error);
+        }
     }
 
     setupIPCHandlers() {
@@ -718,128 +724,7 @@ class MockMateApp {
                 return { success: false, error: error.message };
             }
         });
-        // Handle system sound toggle from renderer
-        ipcMain.on('toggle-system-sound', (event, isEnabled) => {
-            this.toggleSystemSound();
-        });
         
-        // Handle system audio data from renderer
-        ipcMain.on('system-audio-data', (event, audioData) => {
-            console.log('Main: Received system audio data:', audioData.data.length, 'samples');
-            
-            // Store audio data in buffer manager for analysis and processing
-            this.audioBufferManager.addAudioData(audioData.data, {
-                timestamp: Date.now(),
-                sampleRate: audioData.sampleRate || 44100,
-                channels: audioData.channels || 2,
-                source: 'system-audio'
-            });
-            
-            // Pass the audio data to the system audio service for processing
-            if (this._systemAudioService) {
-                this._systemAudioService.handleAudioData(audioData);
-            }
-        });
-        
-        // Handle system audio started event from renderer
-        ipcMain.on('system-audio-started', (event) => {
-            console.log('Main: System audio capture started successfully');
-            // Emit start event through system audio service
-            if (this._systemAudioService) {
-                this._systemAudioService.emit('start');
-            }
-        });
-        
-        // Handle system audio stopped event from renderer
-        ipcMain.on('system-audio-stopped', (event) => {
-            console.log('Main: System audio capture stopped');
-            // Emit stop event through system audio service
-            if (this._systemAudioService) {
-                this._systemAudioService.emit('stop');
-            }
-        });
-        
-        // Handle system audio error from renderer
-        ipcMain.on('system-audio-error', (event, errorMessage) => {
-            console.error('Main: System audio error from renderer:', errorMessage);
-            // Pass error to system audio service
-            if (this._systemAudioService) {
-                this._systemAudioService.handleAudioError(new Error(errorMessage));
-            }
-        });
-
-        // Handle request for desktop audio sources
-        ipcMain.handle('get-desktop-audio-sources', async () => {
-            try {
-                const sources = await desktopCapturer.getSources({ types: ['screen', 'window', 'audio'] });
-                return { success: true, sources: sources };
-            } catch (error) {
-                console.error('Failed to get desktop audio sources:', error);
-                return { success: false, error: error.message };
-            }
-        });
-        
-        // Handle request for audio sources (legacy compatibility)
-        ipcMain.handle('get-audio-sources', async () => {
-            try {
-                const sources = await desktopCapturer.getSources({ types: ['screen', 'window', 'audio'] });
-                console.log('Main: Available audio sources:', sources.map(s => ({ id: s.id, name: s.name })));
-                return sources;
-            } catch (error) {
-                console.error('Failed to get audio sources:', error);
-                return [];
-            }
-        });
-        
-        // Handle system audio stream request
-        ipcMain.handle('get-system-audio-stream', async () => {
-            try {
-                console.log('Main: Getting system audio stream...');
-                
-                // Get available desktop sources
-                const sources = await desktopCapturer.getSources({ types: ['screen', 'window', 'audio'] });
-                console.log('Main: Available sources:', sources.map(s => ({ id: s.id, name: s.name })));
-                
-                // Look for audio sources or use the first screen source
-                const audioSource = sources.find(source => 
-                    source.name.toLowerCase().includes('system audio') ||
-                    source.name.toLowerCase().includes('stereo mix') ||
-                    source.name.toLowerCase().includes('what u hear') ||
-                    source.name.toLowerCase().includes('speakers') ||
-                    source.name.toLowerCase().includes('headphones')
-                ) || sources.find(source => source.id.startsWith('screen'));
-                
-                if (!audioSource) {
-                    throw new Error('No suitable audio source found. Available sources: ' + sources.map(s => s.name).join(', '));
-                }
-                
-                console.log('Main: Selected audio source:', audioSource.name);
-                
-                return {
-                    success: true,
-                    sourceId: audioSource.id,
-                    sourceName: audioSource.name
-                };
-                
-            } catch (error) {
-                console.error('Main: Failed to get system audio stream:', error);
-                return { success: false, error: error.message };
-            }
-        });
-
-        // Handle microphone toggle from renderer (AUDIO FUNCTIONALITY DISABLED)
-        ipcMain.on('toggle-microphone', async (event, isEnabled) => {
-            console.log('⚠️ Microphone functionality has been completely disabled');
-            
-            // Always keep it disabled
-            this.appState.isMicEnabled = false;
-            
-            // Send feedback to UI
-            if (this.controlWindow) {
-                this.controlWindow.webContents.send('microphone-toggled', false);
-                this.controlWindow.webContents.send('display-transcription', '❌ Microphone functionality has been permanently disabled');
-            }
-        });
 
         // Handle model selection from main window dropdown
         ipcMain.handle('get-current-model', () => {
@@ -1145,100 +1030,8 @@ class MockMateApp {
             }
         });
 
-        // AudioBufferManager IPC handlers for renderer communication and control
-        
-        // Get audio buffer statistics
-        ipcMain.handle('get-audio-buffer-stats', async () => {
-            try {
-                const stats = this.audioBufferManager.getStats();
-                return { success: true, stats: stats };
-            } catch (error) {
-                console.error('Failed to get audio buffer stats:', error);
-                return { success: false, error: error.message };
-            }
-        });
-        
-        // Get recent audio segment for analysis
-        ipcMain.handle('get-recent-audio-segment', async (event, durationMs = 5000) => {
-            try {
-                const segment = this.audioBufferManager.getRecentSegment(durationMs);
-                return {
-                    success: true,
-                    segment: {
-                        data: Array.from(segment.data), // Convert Float32Array to regular array for IPC
-                        timestamp: segment.timestamp,
-                        duration: segment.duration,
-                        sampleRate: segment.sampleRate,
-                        channels: segment.channels
-                    }
-                };
-            } catch (error) {
-                console.error('Failed to get recent audio segment:', error);
-                return { error: error.message };
-            }
-        });
-        
-        // Clear audio buffer
-        ipcMain.handle('clear-audio-buffer', async () => {
-            try {
-                this.audioBufferManager.clear();
-                return { success: true };
-            } catch (error) {
-                console.error('Failed to clear audio buffer:', error);
-                return { error: error.message };
-            }
-        });
-        
-        // Get audio buffer health status
-        ipcMain.handle('get-audio-buffer-health', async () => {
-            try {
-                const stats = this.audioBufferManager.getStats();
-                const isHealthy = stats.segmentCount > 0 && stats.usedSize < (100 * 1024 * 1024); // Less than 100MB
-                const health = {
-                    isHealthy,
-                    averageLevel: stats.bufferLength > 0 ? (stats.usedSize / stats.bufferSize) : 0
-                };
 
-                return {
-                    success: true,
-                    health: health,
-                    stats: stats, // Also return full stats
-                    timestamp: new Date().toISOString()
-                };
-            } catch (error) {
-                console.error('Failed to get audio buffer health:', error);
-                return { success: false, error: error.message };
-            }
-        });
         
-        // Search for audio patterns (for question detection)
-        ipcMain.handle('search-audio-patterns', async (event, options = {}) => {
-            try {
-                // This could be extended to work with question detection service
-                const recentSegment = this.audioBufferManager.getRecentSegment(options.duration || 10000);
-                
-                // Basic pattern analysis - could be enhanced with more sophisticated algorithms
-                const patterns = {
-                    hasAudio: recentSegment.data.length > 0,
-                    averageVolume: this.calculateAverageVolume(recentSegment.data),
-                    peakVolume: this.calculatePeakVolume(recentSegment.data),
-                    silenceRatio: this.calculateSilenceRatio(recentSegment.data)
-                };
-                
-                return {
-                    success: true,
-                    patterns,
-                    segmentInfo: {
-                        duration: recentSegment.duration,
-                        sampleRate: recentSegment.sampleRate,
-                        dataLength: recentSegment.data.length
-                    }
-                };
-            } catch (error) {
-                console.error('Failed to search audio patterns:', error);
-                return { error: error.message };
-            }
-        });
     }
 
     
@@ -1382,79 +1175,6 @@ Your expert answer:`;
     
 
     // Hotkey action methods
-    async toggleSystemSound() {
-        try {
-            this.appState.isSystemSoundEnabled = !this.appState.isSystemSoundEnabled;
-            
-            if (this.appState.isSystemSoundEnabled) {
-                console.log('🔊 Starting system sound capture...');
-                await this.systemAudioService.startSystemAudioCapture();
-                
-                // Set up audio data handler with AudioBufferManager integration
-                this.systemAudioService.on('data', (audioData) => {
-                    // Store audio data in buffer manager for analysis and processing
-                    this.audioBufferManager.addAudioData(audioData.data, {
-                        timestamp: Date.now(),
-                        sampleRate: audioData.sampleRate || 44100,
-                        channels: audioData.channels || 2,
-                        source: 'system-audio-service'
-                    });
-                    
-                    // Process with speech service for transcription
-                    this.speechService.transcribe(audioData.data);
-                });
-
-                this.speechService.on('transcription', (transcription) => {
-                    if (this.controlWindow) {
-                        this.controlWindow.webContents.send('display-transcription', transcription.response);
-                    }
-                });
-                
-                this.systemAudioService.on('error', (error) => {
-                    console.error('System audio error:', error);
-                    this.appState.isSystemSoundEnabled = false;
-                    if (this.controlWindow) {
-                        this.controlWindow.webContents.send('system-sound-toggled', false);
-                        this.controlWindow.webContents.send('display-transcription', `❌ System audio error: ${error.message}`);
-                    }
-                });
-                
-                if (this.controlWindow) {
-                    this.controlWindow.webContents.send('system-sound-toggled', true);
-                    this.controlWindow.webContents.send('display-transcription', '🔊 System audio capture started - listening to system sounds...');
-                }
-            } else {
-                console.log('🔇 Stopping system sound capture...');
-                this.systemAudioService.stopSystemAudioCapture();
-                
-                if (this.controlWindow) {
-                    this.controlWindow.webContents.send('system-sound-toggled', false);
-                    this.controlWindow.webContents.send('display-transcription', '🔇 System audio capture stopped');
-                }
-            }
-        } catch (error) {
-            console.error('Failed to toggle system sound:', error);
-            this.appState.isSystemSoundEnabled = false;
-            
-            if (this.controlWindow) {
-                this.controlWindow.webContents.send('system-sound-toggled', false);
-                this.controlWindow.webContents.send('display-transcription', `❌ Failed to start system audio: ${error.message}`);
-            }
-        }
-    }
-
-    toggleMicrophone() {
-        console.log('⚠️ Microphone functionality has been completely disabled');
-        
-        // Always keep it disabled
-        this.appState.isMicEnabled = false;
-        
-        // Send disabled state update to renderer
-        if (this.controlWindow) {
-            this.controlWindow.webContents.send('microphone-toggled', false);
-            this.controlWindow.webContents.send('display-transcription', '❌ Microphone functionality has been permanently disabled');
-        }
-    }
 
     analyzeScreen() {
         console.log('Analyzing screen...');
@@ -1873,39 +1593,6 @@ Your expert answer:`;
             this.responsePosition = { x: responseX, y: responseY };
             console.log(`Response window reset to position: ${responseX}, ${responseY} and size: ${this.currentSize.width}x${this.responseSize.height}`);
         }
-    }
-
-    // Helper methods for audio analysis (used in IPC handlers)
-    calculateAverageVolume(audioData) {
-        if (!audioData || audioData.length === 0) return 0;
-        let sum = 0;
-        for (let i = 0; i < audioData.length; i++) {
-            sum += Math.abs(audioData[i]);
-        }
-        return sum / audioData.length;
-    }
-
-    calculatePeakVolume(audioData) {
-        if (!audioData || audioData.length === 0) return 0;
-        let peak = 0;
-        for (let i = 0; i < audioData.length; i++) {
-            const absValue = Math.abs(audioData[i]);
-            if (absValue > peak) {
-                peak = absValue;
-            }
-        }
-        return peak;
-    }
-
-    calculateSilenceRatio(audioData, silenceThreshold = 0.01) {
-        if (!audioData || audioData.length === 0) return 1; // All silent if no data
-        let silentSamples = 0;
-        for (let i = 0; i < audioData.length; i++) {
-            if (Math.abs(audioData[i]) < silenceThreshold) {
-                silentSamples++;
-            }
-        }
-        return silentSamples / audioData.length;
     }
 }
 

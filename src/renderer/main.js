@@ -26,12 +26,6 @@ class MockMateController {
         this.currentToast = null;
         this.isShowingToast = false;
         
-        // System audio capture
-        this.systemAudioStream = null;
-        this.systemAudioProcessor = null;
-        this.audioDebugInterval = null;
-        this.audioDataReceived = 0;
-        this.lastAudioActivity = 0;
         
         this.init();
     }
@@ -42,7 +36,6 @@ class MockMateController {
         this.setupCustomSelect();
         this.setupEventListeners();
         this.setupIPCListeners();
-        this.initializeMicrophoneTranscription();
         this.addHotkeyIndicators();
         this.updateTranscriptionState();
         
@@ -140,9 +133,9 @@ class MockMateController {
 
         // Utility buttons
         document.getElementById('uploadResumeBtn').addEventListener('click', () => this.handleUploadResume());
+        document.getElementById('micBtn').addEventListener('click', () => this.handleMicrophoneToggle());
+        document.getElementById('systemSoundBtn').addEventListener('click', () => this.handleSystemSoundToggle());
         document.getElementById('analyzeScreenBtn').addEventListener('click', () => this.handleAnalyzeScreen());
-        document.getElementById('systemSoundBtn').addEventListener('click', () => this.toggleSystemSound());
-        document.getElementById('micBtn').addEventListener('click', () => this.toggleMicrophone());
         document.getElementById('endSessionBtn').addEventListener('click', () => this.handleEndSession());
         document.getElementById('clearBtn').addEventListener('click', () => this.handleClearTranscription());
         
@@ -187,37 +180,6 @@ class MockMateController {
     }
 
     setupIPCListeners() {
-        ipcRenderer.on('system-sound-toggled', (event, isEnabled) => {
-            this.isSystemSoundOn = isEnabled;
-            const systemSoundBtn = document.getElementById('systemSoundBtn');
-            systemSoundBtn.classList.toggle('active', isEnabled);
-            this.updateTranscriptionState();
-            this.showToast(`🔊 System Sound ${isEnabled ? 'enabled' : 'disabled'}`, 'info');
-        });
-        
-        // Handle system audio capture start/stop requests from main process
-        ipcRenderer.on('start-system-audio-capture', async (event, sourceId) => {
-            console.log('Renderer: Starting system audio capture with source ID:', sourceId);
-            try {
-                await this.startSystemAudioCapture(sourceId);
-            } catch (error) {
-                console.error('Renderer: Failed to start system audio capture:', error);
-                ipcRenderer.send('system-audio-error', error.message);
-            }
-        });
-        
-        ipcRenderer.on('stop-system-audio-capture', () => {
-            console.log('Renderer: Stopping system audio capture...');
-            this.stopSystemAudioCapture();
-        });
-
-        ipcRenderer.on('microphone-toggled', (event, isEnabled) => {
-            this.isMicOn = isEnabled;
-            const micBtn = document.getElementById('micBtn');
-            micBtn.classList.toggle('active', isEnabled);
-            this.updateTranscriptionState();
-            this.showToast(`\uD83C\uDFA4 Microphone ${isEnabled ? 'enabled' : 'disabled'}`, 'info');
-        });
 
         ipcRenderer.on('analyze-screen-triggered', () => {
             this.handleAnalyzeScreen();
@@ -240,20 +202,6 @@ class MockMateController {
             console.log('AI Response:', response);
         });
 
-        // Handle transcription display from audio services
-        ipcRenderer.on('display-transcription', (event, transcription) => {
-            const transcriptionEl = document.getElementById('transcriptionText');
-            if (transcriptionEl && transcription) {
-                if (transcriptionEl.textContent === 'Listening...' || transcriptionEl.textContent === 'Audio functionality disabled - Use manual input or screen analysis...') {
-                    transcriptionEl.textContent = '';
-                }
-                transcriptionEl.textContent += ` ${transcription}`;
-                transcriptionEl.classList.add('active');
-                transcriptionEl.classList.remove('listening');
-                transcriptionEl.scrollLeft = 0; // Auto-scroll to show text from the beginning (left-to-right)
-                this.currentQuestion = transcriptionEl.textContent;
-            }
-        });
 
         // Handle streaming response chunks
         ipcRenderer.on('stream-response-chunk', (event, data) => {
@@ -270,7 +218,6 @@ class MockMateController {
         // Handle streaming response errors
         ipcRenderer.on('stream-response-error', (event, data) => {
             console.error('Streaming response error:', data.error);
-            this.showToast('\u274C AI response failed', 'error');
         });
     }
 
@@ -347,50 +294,50 @@ class MockMateController {
         }
     }
 
-    toggleSystemSound() {
-        console.log('Renderer: Toggling system sound...');
-        
-        // Toggle the state and notify main process
-        ipcRenderer.send('toggle-system-sound', !this.isSystemSoundOn);
-        
-        // Start/stop audio monitoring
-        if (!this.isSystemSoundOn) {
-            this.startAudioMonitoring();
-        } else {
-            this.stopAudioMonitoring();
-        }
-        
-        // The main process will send back 'system-sound-toggled' event to update UI
-    }
-
-    toggleMicrophone() {
-        console.log('⚠️ Microphone functionality has been completely disabled');
-        
-        // Always keep disabled
-        this.isMicOn = false;
-        const micBtn = document.getElementById('micBtn');
-        micBtn.classList.remove('active');
-        
-        this.showToast('\u274C Microphone functionality has been permanently disabled', 'warning');
-        
-        // Notify main process (but it will ignore the request)
-        ipcRenderer.send('toggle-microphone', false);
-    }
 
     handleEndSession() {
         this.showToast('\uD83D\uDC4B Ending session...', 'info');
-        // Clean up any active transcription
-        this.stopMicrophoneTranscription();
-        this.stopSystemAudioTranscription();
         ipcRenderer.send('end-session');
     }
 
     handleClearTranscription() {
         const transcriptionEl = document.getElementById('transcriptionText');
-        transcriptionEl.textContent = 'Audio functionality disabled - Use manual input or screen analysis...';
-        transcriptionEl.classList.remove('active', 'listening');
+        transcriptionEl.textContent = 'Listening...';
+        transcriptionEl.classList.remove('active');
         this.currentQuestion = '';
-        this.showToast('\uD83E\uDDF9 Transcription cleared', 'info');
+        this.showToast('🧹 Transcription cleared', 'info');
+    }
+
+    handleMicrophoneToggle() {
+        this.isMicOn = !this.isMicOn;
+        const micBtn = document.getElementById('micBtn');
+        const micIcon = micBtn.querySelector('.material-icons');
+        
+        if (this.isMicOn) {
+            micIcon.textContent = 'mic';
+            micBtn.classList.add('active');
+            this.showToast('Microphone activated (disabled - no audio functionality)', 'info', 'mic');
+        } else {
+            micIcon.textContent = 'mic_off';
+            micBtn.classList.remove('active');
+            this.showToast('Microphone deactivated', 'info', 'mic_off');
+        }
+    }
+
+    handleSystemSoundToggle() {
+        this.isSystemSoundOn = !this.isSystemSoundOn;
+        const soundBtn = document.getElementById('systemSoundBtn');
+        const soundIcon = soundBtn.querySelector('.material-icons');
+        
+        if (this.isSystemSoundOn) {
+            soundIcon.textContent = 'volume_up';
+            soundBtn.classList.add('active');
+            this.showToast('System sound activated (disabled - no audio functionality)', 'info', 'volume_up');
+        } else {
+            soundIcon.textContent = 'volume_off';
+            soundBtn.classList.remove('active');
+            this.showToast('System sound deactivated', 'info', 'volume_off');
+        }
     }
 
     async handleGenerateAnswer() {
@@ -407,7 +354,7 @@ class MockMateController {
             const transcriptionEl = document.getElementById('transcriptionText');
             const currentQuestion = transcriptionEl.textContent.replace(/"/g, '').trim();
 
-            if (!currentQuestion || currentQuestion === 'Audio functionality disabled - Use manual input or screen analysis...') {
+            if (!currentQuestion || currentQuestion === 'Listening...') {
                 this.showToast('\u26A0\uFE0F No question to answer. Try asking something first.', 'warning');
                 return;
             }
@@ -481,164 +428,29 @@ class MockMateController {
 
     updateTranscriptionState() {
         const transcriptionEl = document.getElementById('transcriptionText');
-        const isListening = this.isMicOn || this.isSystemSoundOn;
 
-        if (isListening) {
-            if (transcriptionEl.textContent === '' || 
-                transcriptionEl.textContent === 'Audio functionality disabled - Use manual input or screen analysis...') {
-                transcriptionEl.textContent = 'Listening...';
-            }
-            transcriptionEl.classList.remove('active');
-            transcriptionEl.classList.add('listening');
-            
-        } else {
-            if (!this.currentQuestion) {
-                transcriptionEl.textContent = 'Audio functionality disabled - Use manual input or screen analysis...';
-            }
-            transcriptionEl.classList.remove('listening');
-            
+        if (!this.currentQuestion) {
+            transcriptionEl.textContent = 'Listening...';
         }
+		transcriptionEl.classList.remove('listening');
     }
 
-    startRealTranscription() {
-        // Start actual speech recognition
-        if (this.isMicOn) {
-            this.startMicrophoneTranscription();
-        }
-        if (this.isSystemSoundOn) {
-            this.startSystemAudioTranscription();
-        }
-    }
 
-    initializeMicrophoneTranscription() {
-        // The display-transcription listener is already set up in setupIPCListeners()
-        console.log('Microphone transcription listener initialized');
-    }
 
-    async startSystemAudioCapture(sourceId) {
-        try {
-            console.log('Renderer: Starting system audio capture with sourceId:', sourceId);
-            
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                throw new Error('getUserMedia is not supported in this environment');
-            }
-
-            this.systemAudioStream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    mandatory: {
-                        chromeMediaSource: 'desktop',
-                        chromeMediaSourceId: sourceId
-                    }
-                },
-                video: {
-                    mandatory: {
-                        chromeMediaSource: 'desktop',
-                        chromeMediaSourceId: sourceId
-                    }
-                }
-            });
-
-            const audioTracks = this.systemAudioStream.getAudioTracks();
-            if (audioTracks.length === 0) {
-                throw new Error('No audio tracks in the captured stream.');
-            }
-            
-            console.log('Renderer: System audio stream acquired successfully');
-
-            const audioContext = new AudioContext();
-            const source = audioContext.createMediaStreamSource(this.systemAudioStream);
-            const processor = audioContext.createScriptProcessor(4096, 1, 1);
-
-            processor.onaudioprocess = (e) => {
-                const inputData = e.inputBuffer.getChannelData(0);
-                ipcRenderer.send('system-audio-data', { data: Array.from(inputData) });
-            };
-
-            source.connect(processor);
-            processor.connect(audioContext.destination); 
-
-            this.systemAudioProcessor = processor;
-
-            ipcRenderer.send('system-audio-started');
-        } catch (error) {
-            console.error('Renderer: Failed to start system audio capture:', error);
-            ipcRenderer.send('system-audio-error', error.message);
-        }
-    }
     
-    stopSystemAudioCapture() {
-        try {
-            console.log('Renderer: Stopping system audio capture...');
-            
-            if (this.systemAudioProcessor) {
-                this.systemAudioProcessor.disconnect();
-                this.systemAudioProcessor = null;
-            }
-            
-            if (this.systemAudioStream) {
-                this.systemAudioStream.getTracks().forEach(track => {
-                    track.stop();
-                });
-                this.systemAudioStream = null;
-            }
-            
-            console.log('Renderer: System audio capture stopped');
-            ipcRenderer.send('system-audio-stopped');
-            
-        } catch (error) {
-            console.error('Renderer: Error stopping system audio capture:', error);
-        }
-    }
     
-    async startSystemAudioTranscription() {
-        console.log('Renderer: Starting system audio transcription...');
-        try {
-            // 1. Get recent audio segment from the buffer
-            const durationMs = 15000; // 15 seconds
-            const audioSegment = await window.electron.audio.getRecentSegment(durationMs);
-
-            if (!audioSegment.success || !audioSegment.segment || audioSegment.segment.data.length === 0) {
-                this.showToast('No recent audio data to transcribe.', 'warning');
-                return;
-            }
-
-            this.showToast('🎤 Transcribing recent audio...', 'info');
-
-            // 2. Send the audio segment to the speech service for transcription
-            const transcriptionResult = await window.electron.speech.transcribe(audioSegment.segment.data);
-
-            if (transcriptionResult.success) {
-                const transcriptionText = transcriptionResult.transcription;
-                const transcriptionEl = document.getElementById('transcriptionText');
-                transcriptionEl.textContent = transcriptionText;
-                transcriptionEl.classList.add('active');
-                this.currentQuestion = transcriptionText;
-                this.showToast('Transcription complete!', 'success');
-            } else {
-                throw new Error(transcriptionResult.error || 'Transcription failed');
-            }
-        } catch (error) {
-            console.error('System audio transcription failed:', error);
-            this.showToast(`Transcription Error: ${error.message}`, 'error');
-        }
-    }
+    
+    
+    
 
     
 
-    stopMicrophoneTranscription() {
-        console.log('⚠️ Microphone transcription functionality has been completely disabled');
-        // No actual stopping needed since functionality is disabled
-    }
+    
 
-    stopSystemAudioTranscription() {
-        console.log('⚠️ System audio transcription functionality has been completely disabled');
-        // No actual stopping needed since functionality is disabled
-    }
+    
 
     addHotkeyIndicators() {
         const hotkeyHints = {
-            'systemSoundBtn': 'Shift+S',
-            'micBtn': 'Ctrl+Q',
             'analyzeScreenBtn': 'Ctrl+A',
             'clearBtn': 'Ctrl+Shift+C',
             'generateBtn': 'Ctrl+Z'
@@ -657,9 +469,9 @@ class MockMateController {
         }
     }
 
-    showToast(message, type = 'info') {
+    showToast(message, type = 'info', icon = null) {
         // Add to queue
-        this.toastQueue.push({ message, type });
+        this.toastQueue.push({ message, type, icon });
         
         // Process queue if not already showing a toast
         if (!this.isShowingToast) {
@@ -674,7 +486,7 @@ class MockMateController {
         }
 
         this.isShowingToast = true;
-        const { message, type } = this.toastQueue.shift();
+        const { message, type, icon } = this.toastQueue.shift();
 
         // Remove current toast if exists
         if (this.currentToast && document.body.contains(this.currentToast)) {
@@ -686,7 +498,7 @@ class MockMateController {
             error: '#ff4757',
             success: '#00c896',
             warning: '#ffa502',
-            info: '#00d4ff'
+            info: 'orange'
         };
 
         toast.style.cssText = `
@@ -706,7 +518,7 @@ class MockMateController {
             transform: translateX(-100%);
             transition: transform 0.3s ease;
         `;
-        toast.textContent = message;
+        toast.innerHTML = icon ? `<span class='material-icons' style='vertical-align: middle; margin-right: 8px;'>${icon}</span>${message}` : message;
         this.currentToast = toast;
 
         document.body.appendChild(toast);
@@ -770,10 +582,8 @@ class MockMateController {
 
         legend.innerHTML = `
             <h3 style="margin: 0 0 16px 0; color: #00d4ff; text-align: center;">\uD83C\uDFB9 Hotkey Reference</h3>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;"><strong>Shift+S</strong><span>System Sound On/Off</span></div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;"><strong>Ctrl+Z</strong><span>Generate AI Answer</span></div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;"><strong>Ctrl+X</strong><span>Hide/Show Window</span></div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;"><strong>Ctrl+Q</strong><span>Microphone On/Off</span></div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;"><strong>Ctrl+A</strong><span>Analyze Screen</span></div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;"><strong>Ctrl+I</strong><span>Focus Input</span></div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;"><strong>Enter</strong><span>Submit Question</span></div>
@@ -800,334 +610,27 @@ class MockMateController {
     }
 
     // Audio monitoring and debugging methods
-    startAudioMonitoring() {
-        console.log('Renderer: Starting audio monitoring...');
-        
-        // Reset counters
-        this.audioDataReceived = 0;
-        this.lastAudioActivity = 0;
-        
-        // Show audio debug info
-        this.showAudioDebugWindow();
-        
-        // Start buffer status monitoring
-        this.startAudioBufferStatusMonitoring();
-        
-        // Start periodic logging
-        this.audioDebugInterval = setInterval(() => {
-            const timeSinceLastActivity = Date.now() - this.lastAudioActivity;
-            console.log(`Audio Monitor - Chunks received: ${this.audioDataReceived}, Last activity: ${timeSinceLastActivity}ms ago`);
-            
-            // Show toast every 10 seconds if no audio activity
-            if (timeSinceLastActivity > 10000 && this.audioDataReceived === 0) {
-                this.showToast('🔇 No audio detected - check system audio is playing', 'warning');
-            }
-        }, 5000);
-    }
     
-    stopAudioMonitoring() {
-        console.log('Renderer: Stopping audio monitoring...');
-        
-        if (this.audioDebugInterval) {
-            clearInterval(this.audioDebugInterval);
-            this.audioDebugInterval = null;
-        }
-        
-        // Stop buffer status monitoring
-        this.stopAudioBufferStatusMonitoring();
-        
-        // Hide debug window
-        this.hideAudioDebugWindow();
-        
-        // Final stats
-        console.log(`Audio Monitor Summary - Total chunks received: ${this.audioDataReceived}`);
-    }
     
-    async updateAudioBufferStatus() {
-        try {
-            // Fetch buffer health and statistics
-            const health = await window.electron.audio.getBufferHealth();
-            const stats = await window.electron.audio.getBufferStats();
-            
-            if (health.success && stats.success) {
-                // Update buffer status window
-                const statusWindow = document.getElementById('audioBufferStatusWindow');
-                if (statusWindow) {
-                    const content = statusWindow.querySelector('#buffer-stats-content');
-                    if (content) {
-                        const bufferSizeMB = (stats.stats.bufferSize / (1024 * 1024)).toFixed(2);
-                        const usedSizeMB = (stats.stats.usedSize / (1024 * 1024)).toFixed(2);
-                        const usagePercent = ((stats.stats.usedSize / stats.stats.bufferSize) * 100).toFixed(1);
-                        
-                        content.innerHTML = `
-                            <div style="margin: 3px 0;">Status: <span style="color: ${health.health.isHealthy ? '#00ff00' : '#ff4757'};">${health.health.isHealthy ? 'Healthy' : 'Issues'}</span></div>
-                            <div style="margin: 3px 0;">Buffer Size: <span style="font-weight: bold;">${bufferSizeMB} MB</span></div>
-                            <div style="margin: 3px 0;">Used: <span style="font-weight: bold;">${usedSizeMB} MB (${usagePercent}%)</span></div>
-                            <div style="margin: 3px 0;">Segments: <span style="font-weight: bold;">${stats.stats.segmentCount}</span></div>
-                            <div style="margin: 3px 0;">Oldest: <span style="font-weight: bold;">${stats.stats.oldestSegmentAge}ms ago</span></div>
-                            <div style="margin: 3px 0;">Newest: <span style="font-weight: bold;">${stats.stats.newestSegmentAge}ms ago</span></div>
-                        `;
-                    }
-                }
-                
-                // Also update the debug window with RMS if available
-                if (health.health.averageLevel !== undefined) {
-                    this.updateAudioDebugInfo(health.health.averageLevel);
-                }
-            }
-        } catch (error) {
-            console.error('Failed to update audio buffer status:', error);
-            const statusWindow = document.getElementById('audioBufferStatusWindow');
-            if (statusWindow) {
-                const content = statusWindow.querySelector('#buffer-stats-content');
-                if (content) {
-                    content.innerHTML = `<div style="color: #ff4757;">Error fetching buffer status</div>`;
-                }
-            }
-        }
-    }
     
-    startAudioBufferStatusMonitoring() {
-        console.log('Renderer: Starting audio buffer status monitoring...');
-        this.showAudioBufferStatusWindow();
-        this.audioBufferStatusInterval = setInterval(() => {
-            this.updateAudioBufferStatus();
-        }, 2000); // Update every 2 seconds
-    }
+    
+    
+    
+    
 
-    stopAudioBufferStatusMonitoring() {
-        console.log('Renderer: Stopping audio buffer status monitoring...');
-        if (this.audioBufferStatusInterval) {
-            clearInterval(this.audioBufferStatusInterval);
-            this.audioBufferStatusInterval = null;
-        }
-        this.hideAudioBufferStatusWindow();
-    }
-
-    showAudioBufferStatusWindow() {
-        this.hideAudioBufferStatusWindow(); // Ensure no duplicates
-
-        const statusWindow = document.createElement('div');
-        statusWindow.id = 'audioBufferStatusWindow';
-        statusWindow.style.cssText = `
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            background: rgba(0, 0, 0, 0.85);
-            color: white;
-            padding: 12px;
-            border-radius: 8px;
-            font-family: monospace;
-            font-size: 11px;
-            z-index: 10000;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-            min-width: 280px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
-        `;
-
-        statusWindow.innerHTML = `
-            <div style="margin-bottom: 8px; color: #00d4ff; font-weight: bold;">🔄️ Audio Buffer Status</div>
-            <div id="buffer-stats-content">Loading...</div>
-        `;
-
-        document.body.appendChild(statusWindow);
-    }
-
-    hideAudioBufferStatusWindow() {
-        const statusWindow = document.getElementById('audioBufferStatusWindow');
-        if (statusWindow && document.body.contains(statusWindow)) {
-            document.body.removeChild(statusWindow);
-        }
-    }
     
-    updateAudioDebugInfo(rms) {
-        // Update debug window if it exists
-        const debugWindow = document.getElementById('audioDebugWindow');
-        if (debugWindow) {
-            const rmsDisplay = debugWindow.querySelector('.rms-value');
-            const chunksDisplay = debugWindow.querySelector('.chunks-count');
-            const activityDisplay = debugWindow.querySelector('.last-activity');
-            
-            if (rmsDisplay) {
-                rmsDisplay.textContent = rms.toFixed(5);
-                // Color code RMS level
-                if (rms > 0.01) {
-                    rmsDisplay.style.color = '#00ff00'; // Green for high
-                } else if (rms > 0.001) {
-                    rmsDisplay.style.color = '#ffff00'; // Yellow for medium
-                } else {
-                    rmsDisplay.style.color = '#ff0000'; // Red for low
-                }
-            }
-            
-            if (chunksDisplay) {
-                chunksDisplay.textContent = this.audioDataReceived;
-            }
-            
-            if (activityDisplay) {
-                const timeSince = this.lastAudioActivity ? Date.now() - this.lastAudioActivity : 'Never';
-                activityDisplay.textContent = typeof timeSince === 'number' ? `${timeSince}ms ago` : timeSince;
-            }
-        }
-    }
+
     
-    showAudioDebugWindow() {
-        // Remove existing debug window if present
-        this.hideAudioDebugWindow();
-        
-        const debugWindow = document.createElement('div');
-        debugWindow.id = 'audioDebugWindow';
-        debugWindow.style.cssText = `
-            position: fixed;
-            top: 60px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.9);
-            color: white;
-            padding: 15px;
-            border-radius: 8px;
-            font-family: monospace;
-            font-size: 12px;
-            z-index: 9999;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            min-width: 250px;
-            backdrop-filter: blur(10px);
-        `;
-        
-        debugWindow.innerHTML = `
-            <div style="margin-bottom: 10px; color: #00d4ff; font-weight: bold;">🎧 Audio Debug Monitor</div>
-            <div style="margin: 5px 0;">RMS Level: <span class="rms-value" style="font-weight: bold;">0.00000</span></div>
-            <div style="margin: 5px 0;">Chunks Sent: <span class="chunks-count" style="font-weight: bold;">0</span></div>
-            <div style="margin: 5px 0;">Last Activity: <span class="last-activity" style="font-weight: bold;">Never</span></div>
-            <div style="margin-top: 10px; font-size: 10px; color: #888;">Real-time audio capture monitoring</div>
-        `;
-        
-        document.body.appendChild(debugWindow);
-        
-        // Make it draggable (simple version)
-        let isDragging = false;
-        let dragOffset = { x: 0, y: 0 };
-        
-        debugWindow.addEventListener('mousedown', (e) => {
-            isDragging = true;
-            dragOffset.x = e.clientX - debugWindow.offsetLeft;
-            dragOffset.y = e.clientY - debugWindow.offsetTop;
-            debugWindow.style.cursor = 'grabbing';
-        });
-        
-        document.addEventListener('mousemove', (e) => {
-            if (isDragging) {
-                debugWindow.style.left = (e.clientX - dragOffset.x) + 'px';
-                debugWindow.style.top = (e.clientY - dragOffset.y) + 'px';
-                debugWindow.style.right = 'auto';
-            }
-        });
-        
-        document.addEventListener('mouseup', () => {
-            isDragging = false;
-            debugWindow.style.cursor = 'grab';
-        });
-        
-        debugWindow.style.cursor = 'grab';
-    }
+
     
-    hideAudioDebugWindow() {
-        const debugWindow = document.getElementById('audioDebugWindow');
-        if (debugWindow && document.body.contains(debugWindow)) {
-            document.body.removeChild(debugWindow);
-        }
-    }
     
-    showAudioCaptureInstructions() {
-        const instructions = document.createElement('div');
-        instructions.id = 'audioCaptureInstructions';
-        instructions.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.95);
-            color: white;
-            padding: 25px;
-            border-radius: 12px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            font-size: 14px;
-            z-index: 10001;
-            backdrop-filter: blur(20px);
-            border: 2px solid #00d4ff;
-            box-shadow: 0 8px 32px rgba(0, 212, 255, 0.3);
-            max-width: 500px;
-            line-height: 1.6;
-            animation: slideIn 0.3s ease;
-        `;
-        
-        instructions.innerHTML = `
-            <div style="text-align: center; margin-bottom: 20px;">
-                <div style="font-size: 24px; margin-bottom: 10px;">🎧</div>
-                <h3 style="margin: 0; color: #00d4ff; font-size: 18px;">System Audio Capture</h3>
-            </div>
-            
-            <div style="margin-bottom: 15px; padding: 15px; background: rgba(0, 212, 255, 0.1); border-radius: 8px; border-left: 4px solid #00d4ff;">
-                <strong>⚠️ IMPORTANT:</strong> When the browser prompts you to share your screen:
-                <ol style="margin: 10px 0 0 20px; padding: 0;">
-                    <li>Select the screen/window you want to share</li>
-                    <li><strong>✅ CHECK the "Share system audio" or "Share audio" checkbox</strong></li>
-                    <li>Click "Share"</li>
-                </ol>
-            </div>
-            
-            <div style="margin-bottom: 20px;">
-                <strong>🎯 What to expect:</strong>
-                <ul style="margin: 10px 0 0 20px; padding: 0;">
-                    <li>Browser permission prompt will appear</li>
-                    <li>Select your main screen or the window with audio</li>
-                    <li>Make sure audio checkbox is checked!</li>
-                    <li>Audio debug monitor will show real-time levels</li>
-                </ul>
-            </div>
-            
-            <div style="text-align: center;">
-                <button id="proceedWithCapture" style="
-                    background: #00d4ff;
-                    color: black;
-                    border: none;
-                    padding: 12px 24px;
-                    border-radius: 6px;
-                    font-weight: bold;
-                    cursor: pointer;
-                    margin-right: 10px;
-                ">I Understand - Proceed</button>
-                <button id="cancelCapture" style="
-                    background: transparent;
-                    color: white;
-                    border: 1px solid #666;
-                    padding: 12px 24px;
-                    border-radius: 6px;
-                    cursor: pointer;
-                ">Cancel</button>
-            </div>
-        `;
-        
-        document.body.appendChild(instructions);
-        
-        // Handle buttons
-        instructions.querySelector('#proceedWithCapture').addEventListener('click', () => {
-            document.body.removeChild(instructions);
-        });
-        
-        instructions.querySelector('#cancelCapture').addEventListener('click', () => {
-            document.body.removeChild(instructions);
-            this.stopSystemAudioCapture();
-            this.showToast('❌ Audio capture cancelled', 'warning');
-        });
-        
-        // Auto-close after 10 seconds
-        setTimeout(() => {
-            if (document.body.contains(instructions)) {
-                document.body.removeChild(instructions);
-            }
-        }, 10000);
-    }
+    
+    
+    
+    
+    
+    
+    
     
 }
 
