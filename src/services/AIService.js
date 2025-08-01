@@ -48,14 +48,21 @@ class AIService {
                 model: this.models[this.selectedModel] || this.selectedModel,
                 messages: [
                     {
+                        role: "system",
+                        content: "You are an expert interview coach. Provide concise and direct answers that are highly relevant to the question. Include just enough context to make the answer clear and relatable, but avoid unnecessary elaboration or tangential details."
+                    },
+                    {
                         role: "user",
                         content: prompt
                     }
                 ],
-                temperature: 0.7,
-                max_tokens: 400, // Reduced for even faster initial response
+                temperature: 0.0,
+                max_tokens: 150,
                 stream: onChunk !== null,
-                private: true
+                private: true,
+                top_p: 1.0,
+                presence_penalty: 0.2,
+                frequency_penalty: 0.2
             };
             
             const headers = {
@@ -336,7 +343,7 @@ class AIService {
                 messages: [
                     {
                         role: "system",
-                        content: "You are a text analyzer that extracts interview questions from text."
+                        content: "Provide only the absolute minimum, most direct answer to the question. Do NOT include any additional details, explanations, or related topics. Answer as briefly and precisely as possible."
                     },
                     {
                         role: "user",
@@ -459,7 +466,13 @@ class AIService {
                 model: this.models[this.selectedModel] || this.selectedModel,
                 seed: Math.floor(Math.random() * 1000),
                 private: true,
-                system: 'You are an expert interview coach providing concise answers.'
+                system: 'You are an expert interview coach. Provide concise and direct answers that are highly relevant to the question. Include just enough context to make the answer clear and relatable, but avoid unnecessary elaboration or tangential details.',
+                temperature: 0.0,
+                max_tokens: 150,
+                stream: true,
+                top_p: 1.0,
+                presence_penalty: 0.2,
+                frequency_penalty: 0.2
             };
             
             const headers = {

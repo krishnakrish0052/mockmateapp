@@ -19,6 +19,8 @@ require('dotenv').config();
 // Lazy-load services for better startup performance - services are imported when first needed
 // This significantly reduces the initial loading time of the application
 
+const INITIAL_RESPONSE_WINDOW_HEIGHT = 280;
+
 class MockMateApp {
     constructor() {
         this.controlWindow = null;
@@ -237,7 +239,7 @@ class MockMateApp {
         
         this.responseWindow = new BrowserWindow({
             width: this.currentSize.width,
-            height: 1, // Set initial height to a minimal value
+            height: INITIAL_RESPONSE_WINDOW_HEIGHT, // Set initial height to accommodate 10 lines
             x: responseX,
             y: responseY,
             frame: false,
@@ -308,7 +310,7 @@ class MockMateApp {
 
         // Reset window height for new response
         const bounds = this.responseWindow.getBounds();
-        this.responseWindow.setBounds({ height: 1, x: bounds.x, y: bounds.y, width: bounds.width });
+        this.responseWindow.setBounds({ height: INITIAL_RESPONSE_WINDOW_HEIGHT, x: bounds.x, y: bounds.y, width: bounds.width });
 
         this.responseWindow.show();
 
@@ -486,15 +488,18 @@ class MockMateApp {
         ipcMain.handle('generate-ai-response', async (event, context) => {
             try {
                 console.log('Main: Handling AI response generation for:', context.question);
-                
+
                 // Store current question
                 this.appState.currentQuestion = context.question;
-                
+
                 // Show loading response window first
                 this.showLoadingResponse(context.question);
-                
+
+                // Construct the prompt for the AI service
+                const prompt = `Context:\nCompany: ${context.company || 'N/A'}\nJob Description: ${context.jobDescription || 'N/A'}\n\nQuestion: ${context.question}`;
+
                 // Generate response with streaming callback
-                const response = await this.aiService.generateResponse(context, (chunk) => {
+                const response = await this.aiService.generateResponse({ ...context, prompt }, (chunk) => {
                     // Handle streaming chunks
                     console.log('Main: Received streaming chunk:', chunk.content);
                     this.streamResponseUpdate({
@@ -505,9 +510,9 @@ class MockMateApp {
                         isStreaming: true
                     });
                 });
-                
+
                 console.log('Main: Final response received:', response);
-                
+
                 // Update with final response
                 this.updateResponseWindow({
                     response: response.response,
@@ -515,11 +520,11 @@ class MockMateApp {
                     model: response.model,
                     timestamp: response.timestamp
                 });
-                
+
                 return response;
             } catch (error) {
                 console.error('AI generation failed:', error);
-                
+
                 // Show error in response window
                 this.updateResponseWindow({
                     response: `Error: ${error.message}`,
@@ -527,7 +532,7 @@ class MockMateApp {
                     model: this.appState.selectedModel,
                     timestamp: new Date().toISOString()
                 });
-                
+
                 return { error: error.message };
             }
         });
@@ -1010,7 +1015,7 @@ class MockMateApp {
                 try {
                     const bounds = this.responseWindow.getBounds();
                     // Add some padding and enforce min/max bounds
-                    const minHeight = 200;
+                    const minHeight = INITIAL_RESPONSE_WINDOW_HEIGHT;
                     const maxHeight = 800;
                     const finalHeight = Math.min(maxHeight, newHeight + 20);
                     

@@ -391,7 +391,7 @@
                 if (this.chunkQueue.length > 0) {
                     const textToAppend = this.chunkQueue.join('');
                     this.chunkQueue = [];
-                    this.streamedResponseEl.innerHTML += textToAppend;
+                    this.streamedResponseEl.appendChild(document.createTextNode(textToAppend));
                     this.requestResize();
                 }
             }
@@ -431,7 +431,7 @@
                 this.resizeTimeout = setTimeout(() => {
                     const contentHeight = this.responseContent.scrollHeight;
                     ipcRenderer.send('resize-response-window', contentHeight);
-                }, 100); // Debounce for 100ms
+                }, 500); // Debounce for 500ms
             }
 
             formatResponse(response) {
