@@ -192,10 +192,6 @@ class SystemAudioCaptureService {
             console.log(`[${timestamp}] SystemAudioCaptureService: 🌐 API Endpoint: ${this.apiEndpoint}`);
             console.log(`[${timestamp}] SystemAudioCaptureService: 🎵 Audio Format: WAV, Model: openai-audio`);
             
-            // Dynamically import fetch and FormData within the function scope
-            const fetch = require('node-fetch');
-            const FormData = require('form-data');
-
             const response = await axios.post(this.apiEndpoint, payload, {
                 headers: {
                     'Content-Type': 'application/json',
@@ -207,13 +203,12 @@ class SystemAudioCaptureService {
             
             console.log(`[${timestamp}] SystemAudioCaptureService: 📨 STT API Response - Status: ${response.status} ${response.statusText}`);
             
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`[${timestamp}] SystemAudioCaptureService: ❌ API Error Response: ${errorText}`);
-                throw new Error(`STT API error: ${response.status} ${response.statusText} - ${errorText}`);
+            if (response.status !== 200) {
+                console.error(`[${timestamp}] SystemAudioCaptureService: ❌ API Error Response:`, response.data);
+                throw new Error(`STT API error: ${response.status} ${response.statusText} - ${JSON.stringify(response.data)}`);
             }
             
-            const data = await response.json();
+            const data = response.data;
             console.log(`[${timestamp}] SystemAudioCaptureService: 📄 STT API Response Data:`, JSON.stringify(data, null, 2));
             
             // Step 6: Extract and process transcription
