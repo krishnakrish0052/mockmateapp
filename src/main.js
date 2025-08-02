@@ -1066,19 +1066,23 @@ class MockMateApp {
         // Desktop audio capture IPC handlers - using renderer-based real audio capture
         ipcMain.handle('start-audio-capture', async () => {
             if (this.appState.isAudioCapturing) {
+                console.log('Audio capture is already in progress.');
                 return { success: false, message: 'Audio capture already in progress' };
             }
             try {
-                console.log('Requesting renderer to start real audio capture...');
+                console.log('Main process: Requesting renderer to start real audio capture...');
                 // Send request to renderer to start audio capture
                 if (this.controlWindow) {
+                    console.log('Main process: Control window found. Sending start capture request...');
                     this.controlWindow.webContents.send('start-renderer-audio-capture');
+                } else {
+                    console.log('Main process: No control window found - cannot send start capture request!');
                 }
                 this.appState.isAudioCapturing = true;
-                console.log('Audio capture request sent to renderer.');
+                console.log('Main process: Audio capture request sent to renderer.');
                 return { success: true, message: 'Audio capture started successfully.' };
             } catch (error) {
-                console.error('Error occurred while starting audio capture:', error);
+                console.error('Main process: Error occurred while starting audio capture:', error);
                 return { success: false, message: error.message };
             }
         });

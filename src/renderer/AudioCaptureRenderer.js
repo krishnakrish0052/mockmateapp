@@ -22,85 +22,73 @@ class AudioCaptureRenderer {
     }
 
     async startCapture(onTranscription) {
-        this.log('STARTING AUDIO CAPTURE - Entry point');
+        console.log('AudioCaptureRenderer: Starting audio capture...');
         
         if (this.isCapturing) {
-            this.log('ALREADY CAPTURING - Returning false');
             return { success: false, message: 'Already capturing' };
         }
 
         this.onTranscriptionCallback = onTranscription;
-        this.log('CALLBACK SET - onTranscription callback registered');
 
         try {
-            // Check if getDisplayMedia is supported
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-                throw new Error('Screen capture with audio is not supported in this browser');
-            }
-
-            this.log('MEDIA DEVICES SUPPORTED - Requesting display media with system audio');
-            
-            // Use system audio loopback approach (similar to soundservice)
-            let stream = null;
-            
+            // Simple approach like soundservice - direct getDisplayMedia call
+            let stream;
             try {
-                this.log('ATTEMPTING SYSTEM AUDIO LOOPBACK - getDisplayMedia with system audio');
-                
-                // Request display media with system audio loopback
-                // The main process should have already set up the display media request handler
+                console.log('AudioCaptureRenderer: Requesting media stream with audio...');
                 stream = await navigator.mediaDevices.getDisplayMedia({
-                    audio: {
-                        echoCancellation: false,
-                        noiseSuppression: false,
-                        sampleRate: 44100,
-                        channelCount: 2,
-                        autoGainControl: false
-                    },
-                    video: {
-                        width: 1,
-                        height: 1,
-                        frameRate: 1
-                    } // Minimal video as placeholder for audio capture
+                    audio: true,
+                    video: false
                 });
-                
-                this.log('SYSTEM AUDIO CAPTURE SUCCESS - Stream obtained with loopback');
-                
-                // Check if we got audio tracks
-                const audioTracks = stream.getAudioTracks();
-                this.log(`AUDIO TRACKS CHECK - Found ${audioTracks.length} audio tracks`);
-                
-                if (audioTracks.length === 0) {
-                    stream.getTracks().forEach(track => track.stop());
-                    throw new Error('No system audio tracks available from loopback capture');
-                }
-                
-                this.log('SYSTEM AUDIO TRACKS VALIDATED - Loopback capture has audio');
-                
-                // Log audio track details
-                audioTracks.forEach((track, index) => {
-                    this.log(`AUDIO TRACK ${index} - Label: ${track.label}, Kind: ${track.kind}, ReadyState: ${track.readyState}`);
-                });
-                
-            } catch (loopbackError) {
-                this.log('SYSTEM AUDIO LOOPBACK FAILED - Error: ' + loopbackError.message);
-                throw new Error(`System audio loopback capture failed: ${loopbackError.message}`);
+                console.log('AudioCaptureRenderer: Media stream obtained successfully.');
+            } catch (error) {
+                console.error('AudioCaptureRenderer: Failed to obtain media stream:', error);
+                throw error;
             }
-            
-            this.stream = stream;
-            this.log('STREAM ASSIGNED - Audio stream ready');
-            this.log(`STREAM DETAILS - Audio tracks: ${this.stream.getAudioTracks().length}`);
 
-            // Set up MediaRecorder for continuous recording
-            this.log('SETTING UP MEDIA RECORDER - Calling setupMediaRecorder()');
-            this.setupMediaRecorder();
+            try {
+                console.log('AudioCaptureRenderer: Initializing MediaRecorder...');
+                this.mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+                console.log('AudioCaptureRenderer: MediaRecorder initialized successfully.');
+            } catch (recorderError) {
+                console.error('AudioCaptureRenderer: Failed to initialize MediaRecorder:', recorderError);
+                throw recorderError;
+            }
+            this.audioChunks = [];
+            
+            this.mediaRecorder.ondataavailable = e => {
+                if (e.data.size > 0) {
+                    this.audioChunks.push(e.data);
+                }
+            };
+            
+            this.mediaRecorder.onerror = event => {
+                console.error('Recording error:', event.error);
+            };
+            
+            // Start recording with 5-second chunks like soundservice
+            this.mediaRecorder.start(5000);
+            
+            // Process chunks periodically
+            this.recordingInterval = setInterval(async () => {
+                if (this.audioChunks.length > 0) {
+                    const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+                    this.audioChunks = [];
+                    
+                    // Convert to ArrayBuffer and send to main process via IPC
+                    const arrayBuffer = await audioBlob.arrayBuffer();
+                    if (window.electronAPI && window.electronAPI.sendAudioData) {
+                        await window.electronAPI.sendAudioData(arrayBuffer);
+                    }
+                }
+            }, 5000);
             
             this.isCapturing = true;
-            this.log('AUDIO CAPTURE STARTED - isCapturing = true');
+            console.log('AudioCaptureRenderer: Audio capture started successfully');
             
             return { success: true, message: 'Audio capture started' };
-
+            
         } catch (error) {
-            this.log('AUDIO CAPTURE FAILED - Error: ' + error.message);
+            console.error('AudioCaptureRenderer: Failed to start capture:', error);
             this.isCapturing = false;
             return { success: false, message: error.message };
         }
@@ -349,7 +337,6 @@ class AudioCaptureRenderer {
         console.log('AudioCaptureRenderer: Stopping audio capture...');
         
         if (!this.isCapturing) {
-            console.log('AudioCaptureRenderer: Not currently capturing');
             return { success: false, message: 'Not capturing' };
         }
 
@@ -360,29 +347,20 @@ class AudioCaptureRenderer {
             if (this.recordingInterval) {
                 clearInterval(this.recordingInterval);
                 this.recordingInterval = null;
-                console.log('AudioCaptureRenderer: Recording interval cleared');
             }
 
             // Stop media recorder
             if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
                 this.mediaRecorder.stop();
-                console.log('AudioCaptureRenderer: MediaRecorder stopped');
-            }
-
-            // Stop all tracks in the stream
-            if (this.stream) {
-                this.stream.getTracks().forEach(track => {
-                    track.stop();
-                    console.log('AudioCaptureRenderer: Stopped track:', track.kind);
-                });
-                this.stream = null;
+                this.mediaRecorder.stream.getTracks().forEach(track => track.stop());
             }
 
             // Clear remaining chunks
             this.audioChunks = [];
             this.onTranscriptionCallback = null;
+            this.mediaRecorder = null;
 
-            console.log('AudioCaptureRenderer: Audio capture stopped successfully');
+            console.log('AudioCaptureRenderer: Audio capture stopped');
             return { success: true, message: 'Audio capture stopped' };
 
         } catch (error) {

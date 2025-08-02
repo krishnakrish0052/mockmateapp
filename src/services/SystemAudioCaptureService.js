@@ -2,6 +2,13 @@ const fetch = require('node-fetch');
 const FormData = require('form-data');
 const { BrowserWindow, session, desktopCapturer, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const FFmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
+
+// Set FFmpeg path
+FFmpeg.setFfmpegPath(ffmpegPath);
 
 class SystemAudioCaptureService {
     constructor() {
@@ -45,116 +52,23 @@ class SystemAudioCaptureService {
         console.log('SystemAudioCaptureService: Starting real audio capture process...');
 
         try {
-            // Set up desktop capturer for system audio loopback
+            // Set up desktop capturer for system audio loopback (simplified approach like soundservice)
             console.log('SystemAudioCaptureService: Setting up display media request handler for loopback audio...');
-            session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
-                try {
-                    const sources = await desktopCapturer.getSources({ types: ['screen'] });
+            session.defaultSession.setDisplayMediaRequestHandler((_, callback) => {
+                desktopCapturer.getSources({ types: ['screen'] }).then(sources => {
                     console.log('SystemAudioCaptureService: Desktop sources obtained:', sources.length);
-                    
                     callback({
                         video: sources[0],   // required placeholder
                         audio: 'loopback'    // Windows system audio
                     });
                     console.log('SystemAudioCaptureService: Display media request handler callback completed');
-                } catch (error) {
+                }).catch(error => {
                     console.error('SystemAudioCaptureService: Error in display media request handler:', error);
                     callback({ video: null, audio: null });
-                }
+                });
             });
 
-            // Create a hidden renderer window to handle audio capture with preload script
-            console.log('SystemAudioCaptureService: Creating hidden capture window...');
-            this.captureWindow = new BrowserWindow({
-                width: 1,
-                height: 1,
-                show: false,
-                webPreferences: {
-                    preload: path.join(__dirname, 'audio-capture-preload.js'),
-                    nodeIntegration: false,
-                    contextIsolation: true,
-                    sandbox: false
-                }
-            });
-
-            // Load HTML content that will handle audio capture
-            const captureHTML = `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="utf-8"/>
-                </head>
-                <body>
-                    <script>
-                        let mediaRecorder;
-                        let chunks = [];
-                        let processInterval;
-                        
-                        async function startCapture() {
-                            try {
-                                const stream = await navigator.mediaDevices.getDisplayMedia({
-                                    audio: true,
-                                    video: false
-                                });
-                                
-                                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-                                
-                                mediaRecorder.ondataavailable = e => {
-                                    if (e.data.size > 0) {
-                                        chunks.push(e.data);
-                                    }
-                                };
-                                
-                                mediaRecorder.onerror = event => {
-                                    console.error('Recording error:', event.error);
-                                };
-                                
-                                // Start recording with timeslice for real-time processing
-                                mediaRecorder.start(5000); // 5-second chunks
-                                
-                                // Process chunks periodically
-                                processInterval = setInterval(async () => {
-                                    if (chunks.length > 0) {
-                                        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
-                                        chunks = [];
-                                        
-                                        // Convert to ArrayBuffer and send to main process via IPC
-                                        const arrayBuffer = await audioBlob.arrayBuffer();
-                                        if (window.electronAPI && window.electronAPI.sendAudioData) {
-                                            await window.electronAPI.sendAudioData(arrayBuffer);
-                                        }
-                                    }
-                                }, 5000);
-                                
-                                console.log('Audio capture started successfully');
-                            } catch (error) {
-                                console.error('Failed to start capture:', error);
-                            }
-                        }
-                        
-                        // Clean up function
-                        function stopCapture() {
-                            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                                mediaRecorder.stop();
-                                mediaRecorder.stream.getTracks().forEach(track => track.stop());
-                            }
-                            if (processInterval) {
-                                clearInterval(processInterval);
-                            }
-                        }
-                        
-                        // Start capture when page loads
-                        window.addEventListener('DOMContentLoaded', startCapture);
-                        window.addEventListener('beforeunload', stopCapture);
-                    </script>
-                </body>
-                </html>
-            `;
-
-            // Load the HTML content
-            await this.captureWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(captureHTML)}`);
-            
-            console.log('SystemAudioCaptureService: Real audio capture setup completed successfully.');
+            console.log('SystemAudioCaptureService: No hidden capture window needed. Using main renderer process.');
             return { success: true, message: 'Audio capture started' };
         } catch (error) {
             console.error('SystemAudioCaptureService: Failed to start real audio capture:', error);
@@ -226,18 +140,47 @@ class SystemAudioCaptureService {
     }
     
     async processRealAudio(audioData) {
+        const timestamp = new Date().toISOString();
         const dataSize = Buffer.isBuffer(audioData) ? audioData.length : (audioData?.size || 0);
-        console.log('SystemAudioCaptureService: processRealAudio called with data size:', dataSize);
+        
+        console.log(`[${timestamp}] SystemAudioCaptureService: ============ AUDIO PROCESSING START ============`);
+        console.log(`[${timestamp}] SystemAudioCaptureService: Received audio data - Size: ${dataSize} bytes, Type: ${Buffer.isBuffer(audioData) ? 'Buffer' : typeof audioData}`);
         
         if (!audioData || dataSize === 0) {
-            console.warn('SystemAudioCaptureService: No audio data to process.');
+            console.warn(`[${timestamp}] SystemAudioCaptureService: ❌ No audio data to process - aborting`);
             return;
         }
         
+        let tempWebmPath = null;
+        let tempWavPath = null;
+        
         try {
-            console.log('SystemAudioCaptureService: Preparing to send audio to STT API...');
-
-            const base64Audio = audioData.toString('base64'); // Convert Buffer to base64 string
+            // Step 1: Save WebM data to temporary file
+            console.log(`[${timestamp}] SystemAudioCaptureService: 📁 Step 1/6 - Creating temporary files...`);
+            const tempDir = os.tmpdir();
+            const uniqueId = Date.now() + Math.random().toString(36).substr(2, 9);
+            tempWebmPath = path.join(tempDir, `audio_${uniqueId}.webm`);
+            tempWavPath = path.join(tempDir, `audio_${uniqueId}.wav`);
+            
+            console.log(`[${timestamp}] SystemAudioCaptureService: 💾 Writing WebM buffer to: ${tempWebmPath}`);
+            fs.writeFileSync(tempWebmPath, audioData);
+            console.log(`[${timestamp}] SystemAudioCaptureService: ✅ WebM file written successfully - Size: ${fs.statSync(tempWebmPath).size} bytes`);
+            
+            // Step 2: Convert WebM to WAV using FFmpeg
+            console.log(`[${timestamp}] SystemAudioCaptureService: 🔄 Step 2/6 - Converting WebM to WAV using FFmpeg...`);
+            await this.convertWebmToWav(tempWebmPath, tempWavPath, timestamp);
+            
+            // Step 3: Read WAV file and convert to base64
+            console.log(`[${timestamp}] SystemAudioCaptureService: 📖 Step 3/6 - Reading converted WAV file...`);
+            const wavBuffer = fs.readFileSync(tempWavPath);
+            const wavStats = fs.statSync(tempWavPath);
+            console.log(`[${timestamp}] SystemAudioCaptureService: ✅ WAV file read successfully - Size: ${wavStats.size} bytes`);
+            
+            const base64Audio = wavBuffer.toString('base64');
+            console.log(`[${timestamp}] SystemAudioCaptureService: 🔤 Base64 conversion completed - Length: ${base64Audio.length} characters`);
+            
+            // Step 4: Prepare API payload
+            console.log(`[${timestamp}] SystemAudioCaptureService: 📦 Step 4/6 - Preparing STT API payload...`);
             const payload = {
                 model: 'openai-audio',
                 messages: [
@@ -249,70 +192,154 @@ class SystemAudioCaptureService {
                                 type: 'input_audio',
                                 input_audio: {
                                     data: base64Audio,
-                                    format: 'webm'
+                                    format: 'wav' // Now using WAV format instead of WebM
                                 }
                             }
                         ]
                     }
                 ]
             };
-
-            console.log('SystemAudioCaptureService: Sending POST request to STT API:', this.apiEndpoint);
-
+            
+            console.log(`[${timestamp}] SystemAudioCaptureService: 📡 Step 5/6 - Sending POST request to STT API...`);
+            console.log(`[${timestamp}] SystemAudioCaptureService: 🌐 API Endpoint: ${this.apiEndpoint}`);
+            console.log(`[${timestamp}] SystemAudioCaptureService: 🎵 Audio Format: WAV, Model: openai-audio`);
+            
             const response = await fetch(this.apiEndpoint, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'MockMate-Desktop/1.0'
                 },
                 body: JSON.stringify(payload)
             });
             
-            console.log('SystemAudioCaptureService: STT API response status:', response.status);
+            console.log(`[${timestamp}] SystemAudioCaptureService: 📨 STT API Response - Status: ${response.status} ${response.statusText}`);
             
             if (!response.ok) {
-                throw new Error(`STT API error: ${response.status} ${response.statusText}`);
+                const errorText = await response.text();
+                console.error(`[${timestamp}] SystemAudioCaptureService: ❌ API Error Response: ${errorText}`);
+                throw new Error(`STT API error: ${response.status} ${response.statusText} - ${errorText}`);
             }
             
             const data = await response.json();
-            console.log('SystemAudioCaptureService: STT API response data:', data);
+            console.log(`[${timestamp}] SystemAudioCaptureService: 📄 STT API Response Data:`, JSON.stringify(data, null, 2));
             
-            // Extract transcription from OpenAI-style response
+            // Step 6: Extract and process transcription
+            console.log(`[${timestamp}] SystemAudioCaptureService: 🔍 Step 6/6 - Extracting transcription from response...`);
             const transcriptionText = data.choices?.[0]?.message?.content;
-            console.log('SystemAudioCaptureService: Extracted transcription text:', transcriptionText);
+            console.log(`[${timestamp}] SystemAudioCaptureService: 📝 Extracted transcription text: "${transcriptionText}"`);
             
-            if (transcriptionText && transcriptionText.trim() && this.transcriptionCallback) {
+            if (transcriptionText && transcriptionText.trim()) {
                 const transcriptionResult = {
                     text: transcriptionText.trim(),
                     confidence: 0.9, // Pollinations doesn't return confidence, use default
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    audioSize: dataSize,
+                    processingTime: Date.now() - new Date(timestamp).getTime()
                 };
                 
-                console.log('SystemAudioCaptureService: Calling transcription callback with result:', transcriptionResult);
-                this.transcriptionCallback(transcriptionResult);
+                console.log(`[${timestamp}] SystemAudioCaptureService: ✅ TRANSCRIPTION SUCCESS!`);
+                console.log(`[${timestamp}] SystemAudioCaptureService: 📋 Final Result:`, JSON.stringify(transcriptionResult, null, 2));
                 
-                // Also send transcription to main process via IPC for integration with app state
-                const { ipcMain } = require('electron');
-                const mainWindow = BrowserWindow.getAllWindows().find(w => !w.isDestroyed());
-                if (mainWindow) {
-                    mainWindow.webContents.send('transcription-from-system-audio', transcriptionResult);
+                // Call the callback
+                if (this.transcriptionCallback) {
+                    console.log(`[${timestamp}] SystemAudioCaptureService: 📞 Calling transcription callback...`);
+                    this.transcriptionCallback(transcriptionResult);
+                    console.log(`[${timestamp}] SystemAudioCaptureService: ✅ Callback executed successfully`);
+                } else {
+                    console.warn(`[${timestamp}] SystemAudioCaptureService: ⚠️ No transcription callback available`);
                 }
+                
+                // Send to main process for UI update
+                console.log(`[${timestamp}] SystemAudioCaptureService: 📡 Sending transcription to main process for UI update...`);
+                const mainWindows = BrowserWindow.getAllWindows().filter(w => !w.isDestroyed());
+                console.log(`[${timestamp}] SystemAudioCaptureService: 🖥️ Found ${mainWindows.length} active windows`);
+                
+                mainWindows.forEach((window, index) => {
+                    try {
+                        window.webContents.send('transcription-from-system-audio', transcriptionResult);
+                        console.log(`[${timestamp}] SystemAudioCaptureService: ✅ Sent to window ${index + 1}`);
+                    } catch (windowError) {
+                        console.error(`[${timestamp}] SystemAudioCaptureService: ❌ Failed to send to window ${index + 1}:`, windowError.message);
+                    }
+                });
+                
             } else {
-                console.warn('SystemAudioCaptureService: No transcription text in STT response or no callback available.');
+                console.warn(`[${timestamp}] SystemAudioCaptureService: ⚠️ No transcription text extracted from API response`);
+                console.warn(`[${timestamp}] SystemAudioCaptureService: 🔍 Response structure check - choices: ${!!data.choices}, length: ${data.choices?.length}`);
+                if (data.choices && data.choices[0]) {
+                    console.warn(`[${timestamp}] SystemAudioCaptureService: 🔍 First choice - message: ${!!data.choices[0].message}, content: ${data.choices[0].message?.content}`);
+                }
             }
             
         } catch (error) {
-            console.error('SystemAudioCaptureService: STT API error:', error);
+            const errorTimestamp = new Date().toISOString();
+            console.error(`[${errorTimestamp}] SystemAudioCaptureService: ❌ PROCESSING ERROR:`, error.message);
+            console.error(`[${errorTimestamp}] SystemAudioCaptureService: 📊 Error Stack:`, error.stack);
             
-            // Still call callback with error info
+            // Send error callback
             if (this.transcriptionCallback) {
-                this.transcriptionCallback({
+                const errorResult = {
                     text: '[Audio processing error]',
                     confidence: 0,
                     timestamp: Date.now(),
-                    error: error.message
-                });
+                    error: error.message,
+                    audioSize: dataSize
+                };
+                
+                console.log(`[${errorTimestamp}] SystemAudioCaptureService: 📞 Sending error callback...`);
+                this.transcriptionCallback(errorResult);
             }
+        } finally {
+            // Cleanup temporary files
+            const cleanupTimestamp = new Date().toISOString();
+            console.log(`[${cleanupTimestamp}] SystemAudioCaptureService: 🧹 Cleaning up temporary files...`);
+            
+            try {
+                if (tempWebmPath && fs.existsSync(tempWebmPath)) {
+                    fs.unlinkSync(tempWebmPath);
+                    console.log(`[${cleanupTimestamp}] SystemAudioCaptureService: 🗑️ Deleted WebM temp file: ${tempWebmPath}`);
+                }
+                if (tempWavPath && fs.existsSync(tempWavPath)) {
+                    fs.unlinkSync(tempWavPath);
+                    console.log(`[${cleanupTimestamp}] SystemAudioCaptureService: 🗑️ Deleted WAV temp file: ${tempWavPath}`);
+                }
+            } catch (cleanupError) {
+                console.error(`[${cleanupTimestamp}] SystemAudioCaptureService: ⚠️ Cleanup error:`, cleanupError.message);
+            }
+            
+            console.log(`[${cleanupTimestamp}] SystemAudioCaptureService: ============ AUDIO PROCESSING END ============`);
         }
+    }
+    
+    async convertWebmToWav(inputPath, outputPath, timestamp) {
+        return new Promise((resolve, reject) => {
+            console.log(`[${timestamp}] SystemAudioCaptureService: 🔧 FFmpeg conversion started...`);
+            console.log(`[${timestamp}] SystemAudioCaptureService: 📁 Input: ${inputPath}`);
+            console.log(`[${timestamp}] SystemAudioCaptureService: 📁 Output: ${outputPath}`);
+            
+            FFmpeg(inputPath)
+                .toFormat('wav')
+                .audioFrequency(16000) // 16kHz sample rate for better STT compatibility
+                .audioChannels(1)      // Mono channel
+                .audioBitrate('128k')  // Standard bitrate
+                .on('start', (commandLine) => {
+                    console.log(`[${timestamp}] SystemAudioCaptureService: 🚀 FFmpeg command: ${commandLine}`);
+                })
+                .on('progress', (progress) => {
+                    console.log(`[${timestamp}] SystemAudioCaptureService: ⏳ Conversion progress: ${Math.round(progress.percent || 0)}%`);
+                })
+                .on('end', () => {
+                    console.log(`[${timestamp}] SystemAudioCaptureService: ✅ FFmpeg conversion completed successfully`);
+                    console.log(`[${timestamp}] SystemAudioCaptureService: 📊 Output file size: ${fs.statSync(outputPath).size} bytes`);
+                    resolve();
+                })
+                .on('error', (error) => {
+                    console.error(`[${timestamp}] SystemAudioCaptureService: ❌ FFmpeg conversion failed:`, error.message);
+                    reject(error);
+                })
+                .save(outputPath);
+        });
     }
     
     getStatus() {
