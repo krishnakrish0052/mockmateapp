@@ -227,8 +227,8 @@ class MockMateController {
         });
         
         // Handle transcription updates from system audio capture
-        ipcRenderer.on('transcription-update', (event, transcription) => {
-            console.log('Renderer: Received transcription update:', transcription);
+        ipcRenderer.on('transcription-from-system-audio', (event, transcription) => {
+            console.log('Renderer: Received transcription update from system audio:', transcription);
             this.handleTranscriptionUpdate(transcription);
         });
 
