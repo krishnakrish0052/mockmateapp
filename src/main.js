@@ -103,13 +103,22 @@ class MockMateApp {
 
 
 
-    get postgresService() {
+        get postgresService() {
         if (!this._postgresService) {
             const PostgresService = require('./services/PostgresService');
             this._postgresService = PostgresService;
             console.log('PostgresService lazy-loaded successfully');
         }
         return this._postgresService;
+    }
+
+    get systemAudioCaptureService() {
+        if (!this._systemAudioCaptureService) {
+            const SystemAudioCaptureService = require('./services/SystemAudioCaptureService');
+            this._systemAudioCaptureService = new SystemAudioCaptureService();
+            console.log('SystemAudioCaptureService lazy-loaded successfully');
+        }
+        return this._systemAudioCaptureService;
     }
 
     async initialize() {
@@ -479,6 +488,19 @@ class MockMateApp {
                 }
                 
                 return false;
+            });
+
+            // Intercept getDisplayMedia for system audio
+            session.defaultSession.setDisplayMediaRequestHandler((_, callback) => {
+                desktopCapturer.getSources({ types: ['screen'] }).then(sources => {
+                    callback({
+                        video: sources[0],   // required placeholder
+                        audio: 'loopback'    // Windows system audio
+                    });
+                }).catch(error => {
+                    console.error('Error in setDisplayMediaRequestHandler:', error);
+                    callback({ video: null, audio: null });
+                });
             });
             
             console.log('[OK] Automatic permission handling setup complete');
@@ -994,6 +1016,20 @@ class MockMateApp {
         ipcMain.on('end-session', () => {
             console.log('Session ended by user');
             app.quit();
+        });
+
+        // Handle audio data from renderer process for system audio capture
+        ipcMain.handle('write-webm', async (_, arrayBuffer) => {
+            console.log('Main: Received audio data from renderer for system audio capture.');
+            if (arrayBuffer && arrayBuffer.byteLength > 0) {
+                const buffer = Buffer.from(arrayBuffer);
+                // Pass the buffer to the SystemAudioCaptureService for processing and saving
+                await this.systemAudioCaptureService.processRealAudio(buffer);
+                return { success: true };
+            } else {
+                console.warn('Main: Received empty or invalid audio data.');
+                return { success: false, message: 'Empty or invalid audio data' };
+            }
         });
 
         // Handle close response window - just close the response window

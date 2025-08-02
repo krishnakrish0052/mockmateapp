@@ -170,10 +170,22 @@
         }
         .control-item:hover { color: var(--text-primary); }
         .control-icon { display: flex; align-items: center; justify-content: center; color: var(--accent); }
-        .recording-indicator {
+                .recording-indicator {
             width: 10px; height: 10px; background: var(--danger);
             border-radius: 50%; animation: blink 1.5s infinite;
             box-shadow: 0 0 8px var(--danger);
+        }
+        .recording-indicator.active {
+            display: block;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            50% { opacity: 0.5; }
+        }
+        .timer {
+            font-size: 20px;
+            margin: 10px 0;
+            font-family: monospace;
         }
         @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0.3; } }
         .utility-buttons { 
@@ -474,6 +486,8 @@
                     <button id="uploadResumeBtn" class="utility-btn" title="Upload Resume"><span class="material-icons">upload_file</span></button>
                     <button id="micBtn" class="utility-btn" title="Microphone On/Off (Ctrl+Q)"><span class="material-icons">mic_off</span></button>
                     <button id="systemSoundBtn" class="utility-btn" title="System Audio Capture On/Off"><span class="material-icons">volume_off</span></button>
+                    <div id="systemRecordingIndicator" class="recording-indicator" style="display:none;">● Recording</div>
+                    <div id="systemAudioTimer" class="timer" style="display:none;">00:00</div>
                     <button id="analyzeScreenBtn" class="utility-btn" title="Analyze Screen"><span class="material-icons">visibility</span></button>
                     <button id="endSessionBtn" class="utility-btn danger" title="End Session"><span class="material-icons">close</span></button>
                 </div>

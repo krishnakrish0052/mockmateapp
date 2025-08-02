@@ -1,11 +1,10 @@
-const fetch = require('node-fetch');
-const FormData = require('form-data');
 const { BrowserWindow, session, desktopCapturer, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const FFmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
+const axios = require('axios');
 
 // Set FFmpeg path
 FFmpeg.setFfmpegPath(ffmpegPath);
@@ -16,32 +15,14 @@ class SystemAudioCaptureService {
         this.apiEndpoint = 'https://text.pollinations.ai/openai';
         this.transcriptionCallback = null;
         this.captureWindow = null;
-        this.ipcHandlerSetup = false;
         this.autoSaveAudio = true; // Enable auto-save by default
-        this.saveDirectory = path.join(__dirname, '../../'); // Root directory
+        this.saveDirectory = path.join(__dirname, '..', '..', 'audio_output'); // Dedicated audio output directory
         this.mediaRecorder = null;
         this.audioChunks = [];
         this.audioStream = null;
         
         console.log('SystemAudioCaptureService: Constructor called, service initialized.');
         console.log('SystemAudioCaptureService: Auto-save enabled, directory:', this.saveDirectory);
-        this.setupIpcHandlers();
-    }
-    
-    setupIpcHandlers() {
-        if (this.ipcHandlerSetup) return;
-        
-        // Handle audio data from renderer process
-        ipcMain.handle('send-audio-data', async (event, arrayBuffer) => {
-            console.log('SystemAudioCaptureService: Received audio data from renderer, size:', arrayBuffer?.byteLength || 0);
-            if (this.isCapturing && arrayBuffer && arrayBuffer.byteLength > 0) {
-                const buffer = Buffer.from(arrayBuffer);
-                await this.processRealAudio(buffer);
-            }
-        });
-        
-        this.ipcHandlerSetup = true;
-        console.log('SystemAudioCaptureService: IPC handlers setup completed.');
     }
 
     async startCapture(transcriptionCallback) {
@@ -139,19 +120,7 @@ class SystemAudioCaptureService {
         }
     }
 
-    // Method to receive audio data from renderer process
-    receiveAudioData(arrayBuffer) {
-        console.log('SystemAudioCaptureService: receiveAudioData called with ArrayBuffer size:', arrayBuffer?.byteLength || 0);
-        
-        if (this.isCapturing && arrayBuffer && arrayBuffer.byteLength > 0) {
-            // Convert ArrayBuffer to Buffer for Node.js compatibility
-            const buffer = Buffer.from(arrayBuffer);
-            
-            // Process the audio immediately instead of storing chunks
-            this.processRealAudio(buffer);
-            console.log('SystemAudioCaptureService: Audio data processed directly from renderer');
-        }
-    }
+    
     
     async processRealAudio(audioData) {
         const timestamp = new Date().toISOString();
@@ -223,15 +192,17 @@ class SystemAudioCaptureService {
             console.log(`[${timestamp}] SystemAudioCaptureService: 🌐 API Endpoint: ${this.apiEndpoint}`);
             console.log(`[${timestamp}] SystemAudioCaptureService: 🎵 Audio Format: WAV, Model: openai-audio`);
             
-            const response = await fetch(this.apiEndpoint, {
-                method: 'POST',
+            // Dynamically import fetch and FormData within the function scope
+            const fetch = require('node-fetch');
+            const FormData = require('form-data');
+
+            const response = await axios.post(this.apiEndpoint, payload, {
                 headers: {
                     'Content-Type': 'application/json',
                     'User-Agent': 'MockMate-Desktop/1.0',
                     'Authorization': `Bearer ${process.env.POLLINATIONS_API_KEY}`,
                     'Referer': process.env.POLLINATIONS_API_HEADER || 'mockmate'
-                },
-                body: JSON.stringify(payload)
+                }
             });
             
             console.log(`[${timestamp}] SystemAudioCaptureService: 📨 STT API Response - Status: ${response.status} ${response.statusText}`);
@@ -365,6 +336,12 @@ class SystemAudioCaptureService {
 
     async saveWavFile(wavPath, timestamp) {
         try {
+            // Ensure the save directory exists
+            if (!fs.existsSync(this.saveDirectory)) {
+                fs.mkdirSync(this.saveDirectory, { recursive: true });
+                console.log(`SystemAudioCaptureService: Created save directory: ${this.saveDirectory}`);
+            }
+
             const fileName = `audio_${timestamp.replace(/[:.-]/g, '_')}.wav`;
             const destPath = path.join(this.saveDirectory, fileName);
             fs.copyFileSync(wavPath, destPath);

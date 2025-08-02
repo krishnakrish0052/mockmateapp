@@ -6,6 +6,10 @@ class MockMateController {
     constructor() {
         this.isMicOn = false;
         this.isSystemSoundOn = false;
+        this.mediaRecorder = null;
+        this.audioChunks = [];
+        this.startTime = null;
+        this.timerInterval = null;
         
         this.models = [];
         this.selectedModel = 'openai';
@@ -343,11 +347,90 @@ class MockMateController {
         if (this.isSystemSoundOn) {
             soundIcon.textContent = 'volume_up';
             soundBtn.classList.add('active');
-            this.showToast('🔊 System audio (disabled - functionality removed)', 'info', 'volume_up');
+            this.showToast('🔊 System audio capture started', 'info', 'volume_up');
+            this.startSystemAudioRecording();
         } else {
             soundIcon.textContent = 'volume_off';
             soundBtn.classList.remove('active');
-            this.showToast('🔇 System audio turned off', 'info', 'volume_off');
+            this.showToast('🔇 System audio capture stopped', 'info', 'volume_off');
+            this.stopSystemAudioRecording();
+        }
+    }
+
+    async startSystemAudioRecording() {
+        const systemRecordingIndicator = document.getElementById('systemRecordingIndicator');
+        const systemAudioTimer = document.getElementById('systemAudioTimer');
+        const soundBtn = document.getElementById('systemSoundBtn');
+
+        try {
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+                audio: true,
+                video: false
+            });
+
+            this.mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+            this.mediaRecorder.ondataavailable = e => this.audioChunks.push(e.data);
+            this.mediaRecorder.onstop = this.saveWebm.bind(this);
+            this.mediaRecorder.onerror = (event) => {
+                console.error(`System audio recording error: ${event.error}`);
+                this.showToast(`❌ System audio recording error: ${event.error.name}`, 'error');
+                this.stopSystemAudioRecording();
+            };
+
+            this.mediaRecorder.start();
+            this.startTime = Date.now();
+            this.timerInterval = setInterval(() => this.updateSystemAudioTimer(), 1000);
+            systemRecordingIndicator.classList.add('active');
+            systemAudioTimer.style.display = 'block';
+            soundBtn.disabled = false; // Keep button enabled to allow stopping
+        } catch (error) {
+            console.error('Failed to start system audio recording:', error);
+            this.showToast(`❌ Failed to start system audio: ${error.message}`, 'error');
+            this.isSystemSoundOn = false;
+            soundBtn.querySelector('.material-icons').textContent = 'volume_off';
+            soundBtn.classList.remove('active');
+        }
+    }
+
+    stopSystemAudioRecording() {
+        const systemRecordingIndicator = document.getElementById('systemRecordingIndicator');
+        const systemAudioTimer = document.getElementById('systemAudioTimer');
+
+        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+            this.mediaRecorder.stop();
+            this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
+        }
+        clearInterval(this.timerInterval);
+        systemRecordingIndicator.classList.remove('active');
+        systemAudioTimer.textContent = '00:00';
+        systemAudioTimer.style.display = 'none';
+        this.audioChunks = []; // Clear chunks after stopping
+    }
+
+    updateSystemAudioTimer() {
+        const systemAudioTimer = document.getElementById('systemAudioTimer');
+        const elapsed = Date.now() - this.startTime;
+        const seconds = Math.floor(elapsed / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        systemAudioTimer.textContent = `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+    }
+
+    async saveWebm() {
+        try {
+            const blob = new Blob(this.audioChunks, { type: 'audio/webm' });
+            const arrayBuffer = await blob.arrayBuffer();
+            
+            // Send to main process for conversion and auto-saving
+            const result = await window.electronAPI.writeWebm(arrayBuffer);
+            if (result.success) {
+                this.showToast('✅ System audio auto-saved!', 'success');
+            } else {
+                this.showToast(`❌ Failed to auto-save system audio: ${result.message}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error saving system audio:', error);
+            this.showToast(`❌ Error saving system audio: ${error.message}`, 'error');
         }
     }
 

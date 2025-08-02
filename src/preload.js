@@ -6,5 +6,9 @@ contextBridge.exposeInMainWorld('electron', {
         on: (channel, func) => ipcRenderer.on(channel, (event, ...args) => func(event, ...args)),
         once: (channel, func) => ipcRenderer.once(channel, (event, ...args) => func(event, ...args)),
         invoke: (channel, data) => ipcRenderer.invoke(channel, data)
-    },
+    }
+});
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  writeWebm: async (arrayBuffer) => ipcRenderer.invoke('write-webm', arrayBuffer)
 });
