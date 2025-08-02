@@ -3,21 +3,31 @@ const { Pool } = require('pg');
 
 class PostgresService {
     constructor() {
-        this.pool = new Pool({
-            user: process.env.DB_USER,
-            host: process.env.DB_HOST,
-            database: process.env.DB_NAME,
-            password: process.env.DB_PASSWORD,
-            port: process.env.DB_PORT,
-        });
+        this.isEnabled = process.env.DB_USER && process.env.DB_PASSWORD;
+        
+        if (this.isEnabled) {
+            this.pool = new Pool({
+                user: process.env.DB_USER,
+                host: process.env.DB_HOST || 'localhost',
+                database: process.env.DB_NAME || 'mockmate',
+                password: process.env.DB_PASSWORD,
+                port: process.env.DB_PORT || 5432,
+            });
 
-        this.pool.on('error', (err, client) => {
-            console.error('Unexpected error on idle client', err);
-            process.exit(-1);
-        });
+            this.pool.on('error', (err, client) => {
+                console.error('Unexpected error on idle client', err);
+                // Don't exit the process, just log the error
+                this.isEnabled = false;
+            });
+        } else {
+            console.log('PostgresService: Database connection disabled - missing environment variables');
+        }
     }
 
     async query(text, params) {
+        if (!this.isEnabled) {
+            throw new Error('Database connection is disabled');
+        }
         const client = await this.pool.connect();
         try {
             const res = await client.query(text, params);
@@ -28,6 +38,9 @@ class PostgresService {
     }
 
     async getClient() {
+        if (!this.isEnabled) {
+            throw new Error('Database connection is disabled');
+        }
         return this.pool.connect();
     }
     async insertCompany(name) {

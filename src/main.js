@@ -33,26 +33,22 @@ class MockMateApp {
         this.responsePosition = { x: 0, y: 200 };
         this.responseSize = { width: 900, height: 300 };
         this.isInitialized = false;
-        this._systemAudioCaptureService = null;
-        
+
         // Services - will be lazy-loaded via getters when first accessed
         // No need to initialize these as properties since we use getters
         this._aiService = null;
         this._screenCaptureService = null;
         this._postgresService = null;
-        /*
         this._ocrService = null;
         this._questionDetectionService = null;
         this._documentIntelligenceService = null;
-        */
         // App state
         this.appState = {
             isAIWorking: false,
             currentQuestion: '',
             companyName: '',
             jobDescription: '',
-            selectedModel: 'openai',
-            isAudioCapturing: false
+            selectedModel: 'openai'
         };
     }
     
@@ -67,14 +63,7 @@ class MockMateApp {
     }
 
 
-    get systemAudioCaptureService() {
-        if (!this._systemAudioCaptureService) {
-            const SystemAudioCaptureService = require('./services/SystemAudioCaptureService');
-            this._systemAudioCaptureService = new SystemAudioCaptureService();
-            console.log('SystemAudioCaptureService lazy-loaded successfully');
-        }
-        return this._systemAudioCaptureService;
-    }
+
 
     get screenCaptureService() {
         if (!this._screenCaptureService) {
@@ -126,10 +115,15 @@ class MockMateApp {
     async initialize() {
         // Test PostgreSQL connection
         try {
-            const res = await this.postgresService.query('SELECT NOW()');
-            console.log('PostgreSQL connected successfully. Current database time:', res[0].now);
+            if (this.postgresService.isEnabled) {
+                const res = await this.postgresService.query('SELECT NOW()');
+                console.log('PostgreSQL connected successfully. Current database time:', res[0].now);
+            } else {
+                console.log('PostgreSQL connection skipped - database is disabled');
+            }
         } catch (err) {
-            console.error('PostgreSQL connection error:', err);
+            console.error('PostgreSQL connection error:', err.message);
+            console.log('Application will continue without database functionality');
         }
         await app.whenReady();
         
@@ -1062,49 +1056,6 @@ class MockMateApp {
         });
 
         console.log('Model IPC handlers setup completed');
-
-        // Desktop audio capture IPC handlers - using renderer-based real audio capture
-        ipcMain.handle('start-audio-capture', async () => {
-            if (this.appState.isAudioCapturing) {
-                console.log('Audio capture is already in progress.');
-                return { success: false, message: 'Audio capture already in progress' };
-            }
-            try {
-                console.log('Main process: Requesting renderer to start real audio capture...');
-                // Send request to renderer to start audio capture
-                if (this.controlWindow) {
-                    console.log('Main process: Control window found. Sending start capture request...');
-                    this.controlWindow.webContents.send('start-renderer-audio-capture');
-                } else {
-                    console.log('Main process: No control window found - cannot send start capture request!');
-                }
-                this.appState.isAudioCapturing = true;
-                console.log('Main process: Audio capture request sent to renderer.');
-                return { success: true, message: 'Audio capture started successfully.' };
-            } catch (error) {
-                console.error('Main process: Error occurred while starting audio capture:', error);
-                return { success: false, message: error.message };
-            }
-        });
-
-        ipcMain.handle('stop-audio-capture', async () => {
-            if (!this.appState.isAudioCapturing) {
-                return { success: false, message: 'No active audio capture to stop' };
-            }
-            try {
-                console.log('Requesting renderer to stop audio capture...');
-                // Send request to renderer to stop audio capture
-                if (this.controlWindow) {
-                    this.controlWindow.webContents.send('stop-renderer-audio-capture');
-                }
-                this.appState.isAudioCapturing = false;
-                console.log('Audio capture stop request sent to renderer.');
-                return { success: true, message: 'Audio capture stopped successfully.' };
-            } catch (error) {
-                console.error('Error occurred while stopping audio capture:', error);
-                return { success: false, message: error.message };
-            }
-        });
 
         // Handle transcription updates from renderer-based audio capture
         ipcMain.on('transcription-from-renderer', (event, transcription) => {

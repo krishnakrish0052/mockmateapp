@@ -17,8 +17,14 @@ class SystemAudioCaptureService {
         this.transcriptionCallback = null;
         this.captureWindow = null;
         this.ipcHandlerSetup = false;
+        this.autoSaveAudio = true; // Enable auto-save by default
+        this.saveDirectory = path.join(__dirname, '../../'); // Root directory
+        this.mediaRecorder = null;
+        this.audioChunks = [];
+        this.audioStream = null;
         
         console.log('SystemAudioCaptureService: Constructor called, service initialized.');
+        console.log('SystemAudioCaptureService: Auto-save enabled, directory:', this.saveDirectory);
         this.setupIpcHandlers();
     }
     
@@ -52,7 +58,7 @@ class SystemAudioCaptureService {
         console.log('SystemAudioCaptureService: Starting real audio capture process...');
 
         try {
-            // Set up desktop capturer for system audio loopback (simplified approach like soundservice)
+            // Set up display media request handler for system audio loopback
             console.log('SystemAudioCaptureService: Setting up display media request handler for loopback audio...');
             session.defaultSession.setDisplayMediaRequestHandler((_, callback) => {
                 desktopCapturer.getSources({ types: ['screen'] }).then(sources => {
@@ -68,7 +74,10 @@ class SystemAudioCaptureService {
                 });
             });
 
-            console.log('SystemAudioCaptureService: No hidden capture window needed. Using main renderer process.');
+            // Use the existing control window to handle audio capture
+            this.setupControlWindowCapture();
+            
+            console.log('SystemAudioCaptureService: Audio capture setup complete');
             return { success: true, message: 'Audio capture started' };
         } catch (error) {
             console.error('SystemAudioCaptureService: Failed to start real audio capture:', error);
@@ -96,11 +105,16 @@ class SystemAudioCaptureService {
         console.log('SystemAudioCaptureService: Stopping audio capture...');
 
         try {
-            // Close capture window
+            // Stop capture in the window first
             if (this.captureWindow && !this.captureWindow.isDestroyed()) {
-                this.captureWindow.close();
-                this.captureWindow = null;
-                console.log('SystemAudioCaptureService: Capture window closed.');
+                this.captureWindow.webContents.send('stop-capture');
+                setTimeout(() => {
+                    if (this.captureWindow && !this.captureWindow.isDestroyed()) {
+                        this.captureWindow.close();
+                        this.captureWindow = null;
+                        console.log('SystemAudioCaptureService: Capture window closed.');
+                    }
+                }, 100);
             }
             
             // Clear chunk processing interval
@@ -170,6 +184,11 @@ class SystemAudioCaptureService {
             console.log(`[${timestamp}] SystemAudioCaptureService: 🔄 Step 2/6 - Converting WebM to WAV using FFmpeg...`);
             await this.convertWebmToWav(tempWebmPath, tempWavPath, timestamp);
             
+            // Step 2.5: Auto-save WAV file if enabled
+            if (this.autoSaveAudio) {
+                await this.saveWavFile(tempWavPath, timestamp);
+            }
+            
             // Step 3: Read WAV file and convert to base64
             console.log(`[${timestamp}] SystemAudioCaptureService: 📖 Step 3/6 - Reading converted WAV file...`);
             const wavBuffer = fs.readFileSync(tempWavPath);
@@ -208,7 +227,9 @@ class SystemAudioCaptureService {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'User-Agent': 'MockMate-Desktop/1.0'
+                    'User-Agent': 'MockMate-Desktop/1.0',
+                    'Authorization': `Bearer ${process.env.POLLINATIONS_API_KEY}`,
+                    'Referer': process.env.POLLINATIONS_API_HEADER || 'mockmate'
                 },
                 body: JSON.stringify(payload)
             });
@@ -341,7 +362,37 @@ class SystemAudioCaptureService {
                 .save(outputPath);
         });
     }
+
+    async saveWavFile(wavPath, timestamp) {
+        try {
+            const fileName = `audio_${timestamp.replace(/[:.-]/g, '_')}.wav`;
+            const destPath = path.join(this.saveDirectory, fileName);
+            fs.copyFileSync(wavPath, destPath);
+            console.log(`SystemAudioCaptureService: 🗃️ WAV file saved to: ${destPath}`);
+        } catch (error) {
+            console.error('SystemAudioCaptureService: ❌ Error saving WAV file:', error);
+            throw error;
+        }
+    }
     
+    setupControlWindowCapture() {
+        console.log('SystemAudioCaptureService: Setting up control window for audio capture...');
+        
+        // Get the main control window
+        const mainWindows = BrowserWindow.getAllWindows();
+        const controlWindow = mainWindows.find(window => !window.isDestroyed());
+        
+        if (controlWindow) {
+            this.captureWindow = controlWindow;
+            console.log('SystemAudioCaptureService: Using existing control window for audio capture');
+            
+            // Send start capture signal to the control window
+            controlWindow.webContents.send('start-system-audio-capture');
+        } else {
+            console.error('SystemAudioCaptureService: No control window found for audio capture');
+        }
+    }
+
     getStatus() {
         const status = {
             isCapturing: this.isCapturing,

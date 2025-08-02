@@ -228,17 +228,8 @@ class MockMateController {
             this.handleTranscriptionUpdate(transcription);
         });
 
-        // Handle start renderer audio capture request from main process
-        ipcRenderer.on('start-renderer-audio-capture', () => {
-            console.log('Renderer: Received request to start real audio capture');
-            this.startRendererAudioCapture();
-        });
 
-        // Handle stop renderer audio capture request from main process
-        ipcRenderer.on('stop-renderer-audio-capture', () => {
-            console.log('Renderer: Received request to stop audio capture');
-            this.stopRendererAudioCapture();
-        });
+        // Remove old renderer-based audio capture handlers - now using SystemAudioCaptureService
     }
 
     // Button functionality implementations
@@ -345,51 +336,18 @@ class MockMateController {
     }
 
     async handleSystemSoundToggle() {
-        try {
-            this.isSystemSoundOn = !this.isSystemSoundOn;
-            const soundBtn = document.getElementById('systemSoundBtn');
-            const soundIcon = soundBtn.querySelector('.material-icons');
-            
-            if (this.isSystemSoundOn) {
-                // Start audio capture
-                console.log('Renderer: Attempting to start system audio capture.');
-                const result = await ipcRenderer.invoke('start-audio-capture');
-                console.log('Renderer: Result of start-audio-capture IPC call:', result);
-                
-                if (result.success) {
-                    soundIcon.textContent = 'volume_up';
-                    soundBtn.classList.add('active');
-                    this.showToast('🔊 System audio capture started', 'success', 'volume_up');
-                    console.log('Renderer: System audio capture started successfully.');
-                } else {
-                    // Revert state on failure
-                    this.isSystemSoundOn = false;
-                    this.showToast(`❌ Failed to start audio capture: ${result.message}`, 'error');
-                    console.error('Renderer: Failed to start system audio capture:', result.message);
-                }
-            } else {
-                // Stop audio capture
-                console.log('Renderer: Attempting to stop system audio capture.');
-                const result = await ipcRenderer.invoke('stop-audio-capture');
-                console.log('Renderer: Result of stop-audio-capture IPC call:', result);
-                
-                if (result.success) {
-                    soundIcon.textContent = 'volume_off';
-                    soundBtn.classList.remove('active');
-                    this.showToast('🔇 System audio capture stopped', 'info', 'volume_off');
-                    console.log('Renderer: System audio capture stopped successfully.');
-                } else {
-                    // Revert state on failure
-                    this.isSystemSoundOn = true;
-                    this.showToast(`❌ Failed to stop audio capture: ${result.message}`, 'error');
-                    console.error('Renderer: Failed to stop system audio capture:', result.message);
-                }
-            }
-        } catch (error) {
-            console.error('Renderer: System sound toggle failed with error:', error);
-            // Revert state on error
-            this.isSystemSoundOn = !this.isSystemSoundOn;
-            this.showToast('❌ System audio toggle failed', 'error');
+        this.isSystemSoundOn = !this.isSystemSoundOn;
+        const soundBtn = document.getElementById('systemSoundBtn');
+        const soundIcon = soundBtn.querySelector('.material-icons');
+        
+        if (this.isSystemSoundOn) {
+            soundIcon.textContent = 'volume_up';
+            soundBtn.classList.add('active');
+            this.showToast('🔊 System audio (disabled - functionality removed)', 'info', 'volume_up');
+        } else {
+            soundIcon.textContent = 'volume_off';
+            soundBtn.classList.remove('active');
+            this.showToast('🔇 System audio turned off', 'info', 'volume_off');
         }
     }
 
