@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>System-Audio → WAV</title>
+  <style>
+    .recording-indicator {
+      display: none;
+      color: red;
+      font-weight: bold;
+      margin: 10px 0;
+    }
+    .recording-indicator.active {
+      display: block;
+      animation: blink 1s infinite;
+    }
+    @keyframes blink {
+      50% { opacity: 0.5; }
+    }
+    .timer {
+      font-size: 20px;
+      margin: 10px 0;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <button id="recBtn">Start Recording</button>
+  <button id="stopBtn" disabled>Stop & Save WAV</button>
+  <br/>
+  <div id="recordingIndicator" class="recording-indicator">● Recording</div>
+  <div id="timer" class="timer">00:00</div>
+  <span id="status">Idle</span>
+
+  <script>
+    const recBtn = document.getElementById('recBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const status = document.getElementById('status');
+    const recordingIndicator = document.getElementById('recordingIndicator');
+    const timerDisplay = document.getElementById('timer');
+    let mediaRecorder;
+    let chunks = [];
+    let startTime;
+    let timerInterval;
+
+    function updateTimer() {
+      const elapsed = Date.now() - startTime;
+      const seconds = Math.floor(elapsed / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const remainingSeconds = seconds % 60;
+      timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+    }
+
+    function startRecording() {
+      startTime = Date.now();
+      timerInterval = setInterval(updateTimer, 1000);
+      recordingIndicator.classList.add('active');
+      timerDisplay.style.display = 'block';
+    }
+
+    function stopRecording() {
+      clearInterval(timerInterval);
+      recordingIndicator.classList.remove('active');
+      timerDisplay.textContent = '00:00';
+    }
+
+    recBtn.onclick = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          audio: true,
+          video: false
+        });
+
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+        mediaRecorder.ondataavailable = e => chunks.push(e.data);
+        mediaRecorder.onstop = saveWav;
+        mediaRecorder.onerror = (event) => {
+          status.textContent = `Recording error: ${event.error}`;
+          stopRecording();
+        };
+
+        mediaRecorder.start();
+        startRecording();
+        recBtn.disabled = true;
+        stopBtn.disabled = false;
+        status.textContent = 'Recording…';
+      } catch (error) {
+        status.textContent = `Failed to start recording: ${error.message}`;
+      }
+    };
+
+    stopBtn.onclick = () => {
+      mediaRecorder.stop();
+      mediaRecorder.stream.getTracks().forEach(t => t.stop());
+      stopBtn.disabled = true;
+      stopRecording();
+      status.textContent = 'Converting to WAV…';
+    };
+
+    async function saveWav() {
+      try {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        chunks = [];
+        const arrayBuffer = await blob.arrayBuffer();
+        
+        const filePath = await window.electronAPI.writeWebm(arrayBuffer);
+        if (filePath) {
+          status.textContent = `Saved → ${filePath}`;
+        } else {
+          status.textContent = 'Save cancelled';
+        }
+        recBtn.disabled = false;
+      } catch (error) {
+        status.textContent = `Error saving file: ${error.message}`;
+        recBtn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>

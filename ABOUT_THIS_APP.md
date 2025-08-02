@@ -41,7 +41,6 @@ E:\mockmatedesktop\
 │       ├── OCRService.js            # Text extraction
 │       ├── QuestionDetectionService.js # Question parsing
 │       ├── DocumentIntelligenceService.js # Resume analysis
-│       └── SystemAudioService.js    # Audio capture
 ├── mockmate-control-panel.html      # Main UI window
 ├── mockmate-response-window.html    # AI response display
 ├── db_schema.sql                    # Database schema
@@ -220,7 +219,7 @@ CREATE TABLE resumes (
   - Company name and job description inputs
   - AI model selector dropdown
   - Upload resume button
-  - Microphone/system audio toggles
+  - Microphone toggle (placeholder)
   - Real-time transcription display
   - Generate answer button
 
@@ -251,7 +250,7 @@ CREATE TABLE resumes (
 
 ### **3. Memory Management**
 - Automatic cleanup of temporary files
-- Efficient buffer management for audio/screen capture
+- Efficient buffer management for screen capture
 - Service lifecycle management
 
 ---
@@ -261,7 +260,7 @@ CREATE TABLE resumes (
 ### **Data Protection**
 - Local processing of sensitive documents (resumes)
 - Encrypted API communications
-- No persistent storage of interview audio
+- No audio capture functionality
 - Automatic cleanup of temporary data
 
 ### **Process Security**
@@ -277,7 +276,7 @@ CREATE TABLE resumes (
 ### **Graceful Degradation**
 - Fallback AI models if primary fails
 - OCR fallback mechanisms
-- Audio capture error recovery
+- Screen capture error recovery
 - Network timeout handling
 
 ### **Logging & Monitoring**
@@ -299,7 +298,7 @@ NODE_ENV                                          // Development/Production
 
 ### **Runtime Configuration**
 - AI model selection
-- Audio sensitivity settings
+- UI positioning settings
 - Window positioning and sizing
 - Stealth mode preferences
 

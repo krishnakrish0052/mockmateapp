@@ -473,7 +473,7 @@
                 <div class="utility-buttons">
                     <button id="uploadResumeBtn" class="utility-btn" title="Upload Resume"><span class="material-icons">upload_file</span></button>
                     <button id="micBtn" class="utility-btn" title="Microphone On/Off (Ctrl+Q)"><span class="material-icons">mic_off</span></button>
-                    <button id="systemSoundBtn" class="utility-btn" title="System Sound On/Off (Shift+S)"><span class="material-icons">volume_off</span></button>
+                    <button id="systemSoundBtn" class="utility-btn" title="System Audio Capture On/Off"><span class="material-icons">volume_off</span></button>
                     <button id="analyzeScreenBtn" class="utility-btn" title="Analyze Screen"><span class="material-icons">visibility</span></button>
                     <button id="endSessionBtn" class="utility-btn danger" title="End Session"><span class="material-icons">close</span></button>
                 </div>
@@ -504,6 +504,7 @@
         
         <!-- Response Window removed - will be handled by separate window -->
     </div>
+    <script src="./src/renderer/AudioCaptureRenderer.js"></script>
     <script src="./src/renderer/main.js"></script>
     <script>
         // This script is intentionally left empty as the main logic is in src/renderer/main.js

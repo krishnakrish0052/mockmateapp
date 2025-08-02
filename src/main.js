@@ -33,6 +33,7 @@ class MockMateApp {
         this.responsePosition = { x: 0, y: 200 };
         this.responseSize = { width: 900, height: 300 };
         this.isInitialized = false;
+        this._systemAudioCaptureService = null;
         
         // Services - will be lazy-loaded via getters when first accessed
         // No need to initialize these as properties since we use getters
@@ -50,7 +51,8 @@ class MockMateApp {
             currentQuestion: '',
             companyName: '',
             jobDescription: '',
-            selectedModel: 'openai'
+            selectedModel: 'openai',
+            isAudioCapturing: false
         };
     }
     
@@ -64,6 +66,15 @@ class MockMateApp {
         return this._aiService;
     }
 
+
+    get systemAudioCaptureService() {
+        if (!this._systemAudioCaptureService) {
+            const SystemAudioCaptureService = require('./services/SystemAudioCaptureService');
+            this._systemAudioCaptureService = new SystemAudioCaptureService();
+            console.log('SystemAudioCaptureService lazy-loaded successfully');
+        }
+        return this._systemAudioCaptureService;
+    }
 
     get screenCaptureService() {
         if (!this._screenCaptureService) {
@@ -111,7 +122,6 @@ class MockMateApp {
         }
         return this._postgresService;
     }
-
 
     async initialize() {
         // Test PostgreSQL connection
@@ -1039,8 +1049,6 @@ class MockMateApp {
         
     }
 
-    
-
     setupModelIPCHandlers() {
         // Get available models from AI service
         ipcMain.handle('get-available-models', async () => {
@@ -1053,9 +1061,61 @@ class MockMateApp {
             }
         });
 
-        
-
         console.log('Model IPC handlers setup completed');
+
+        // Desktop audio capture IPC handlers - using renderer-based real audio capture
+        ipcMain.handle('start-audio-capture', async () => {
+            if (this.appState.isAudioCapturing) {
+                return { success: false, message: 'Audio capture already in progress' };
+            }
+            try {
+                console.log('Requesting renderer to start real audio capture...');
+                // Send request to renderer to start audio capture
+                if (this.controlWindow) {
+                    this.controlWindow.webContents.send('start-renderer-audio-capture');
+                }
+                this.appState.isAudioCapturing = true;
+                console.log('Audio capture request sent to renderer.');
+                return { success: true, message: 'Audio capture started successfully.' };
+            } catch (error) {
+                console.error('Error occurred while starting audio capture:', error);
+                return { success: false, message: error.message };
+            }
+        });
+
+        ipcMain.handle('stop-audio-capture', async () => {
+            if (!this.appState.isAudioCapturing) {
+                return { success: false, message: 'No active audio capture to stop' };
+            }
+            try {
+                console.log('Requesting renderer to stop audio capture...');
+                // Send request to renderer to stop audio capture
+                if (this.controlWindow) {
+                    this.controlWindow.webContents.send('stop-renderer-audio-capture');
+                }
+                this.appState.isAudioCapturing = false;
+                console.log('Audio capture stop request sent to renderer.');
+                return { success: true, message: 'Audio capture stopped successfully.' };
+            } catch (error) {
+                console.error('Error occurred while stopping audio capture:', error);
+                return { success: false, message: error.message };
+            }
+        });
+
+        // Handle transcription updates from renderer-based audio capture
+        ipcMain.on('transcription-from-renderer', (event, transcription) => {
+            console.log('Received real transcription from renderer:', transcription);
+            
+            // Store the current question/transcription
+            if (transcription.text && transcription.text.trim() && !transcription.error) {
+                this.appState.currentQuestion = transcription.text.trim();
+            }
+            
+            // Send transcription update to control window
+            if (this.controlWindow) {
+                this.controlWindow.webContents.send('transcription-update', transcription);
+            }
+        });
     }
 
     toggleWindowVisibility() {

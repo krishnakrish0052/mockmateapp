@@ -127,3 +127,6 @@ temp/
 *.mp4
 *.avi
 *.mov
+
+# Crush working directory
+.crush/

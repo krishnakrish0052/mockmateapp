@@ -26,6 +26,8 @@ class MockMateController {
         this.currentToast = null;
         this.isShowingToast = false;
         
+        // Audio capture service
+        this.audioCaptureRenderer = null;
         
         this.init();
     }
@@ -219,6 +221,24 @@ class MockMateController {
         ipcRenderer.on('stream-response-error', (event, data) => {
             console.error('Streaming response error:', data.error);
         });
+        
+        // Handle transcription updates from system audio capture
+        ipcRenderer.on('transcription-update', (event, transcription) => {
+            console.log('Renderer: Received transcription update:', transcription);
+            this.handleTranscriptionUpdate(transcription);
+        });
+
+        // Handle start renderer audio capture request from main process
+        ipcRenderer.on('start-renderer-audio-capture', () => {
+            console.log('Renderer: Received request to start real audio capture');
+            this.startRendererAudioCapture();
+        });
+
+        // Handle stop renderer audio capture request from main process
+        ipcRenderer.on('stop-renderer-audio-capture', () => {
+            console.log('Renderer: Received request to stop audio capture');
+            this.stopRendererAudioCapture();
+        });
     }
 
     // Button functionality implementations
@@ -324,19 +344,52 @@ class MockMateController {
         }
     }
 
-    handleSystemSoundToggle() {
-        this.isSystemSoundOn = !this.isSystemSoundOn;
-        const soundBtn = document.getElementById('systemSoundBtn');
-        const soundIcon = soundBtn.querySelector('.material-icons');
-        
-        if (this.isSystemSoundOn) {
-            soundIcon.textContent = 'volume_up';
-            soundBtn.classList.add('active');
-            this.showToast('System sound activated (disabled - no audio functionality)', 'info', 'volume_up');
-        } else {
-            soundIcon.textContent = 'volume_off';
-            soundBtn.classList.remove('active');
-            this.showToast('System sound deactivated', 'info', 'volume_off');
+    async handleSystemSoundToggle() {
+        try {
+            this.isSystemSoundOn = !this.isSystemSoundOn;
+            const soundBtn = document.getElementById('systemSoundBtn');
+            const soundIcon = soundBtn.querySelector('.material-icons');
+            
+            if (this.isSystemSoundOn) {
+                // Start audio capture
+                console.log('Renderer: Attempting to start system audio capture.');
+                const result = await ipcRenderer.invoke('start-audio-capture');
+                console.log('Renderer: Result of start-audio-capture IPC call:', result);
+                
+                if (result.success) {
+                    soundIcon.textContent = 'volume_up';
+                    soundBtn.classList.add('active');
+                    this.showToast('🔊 System audio capture started', 'success', 'volume_up');
+                    console.log('Renderer: System audio capture started successfully.');
+                } else {
+                    // Revert state on failure
+                    this.isSystemSoundOn = false;
+                    this.showToast(`❌ Failed to start audio capture: ${result.message}`, 'error');
+                    console.error('Renderer: Failed to start system audio capture:', result.message);
+                }
+            } else {
+                // Stop audio capture
+                console.log('Renderer: Attempting to stop system audio capture.');
+                const result = await ipcRenderer.invoke('stop-audio-capture');
+                console.log('Renderer: Result of stop-audio-capture IPC call:', result);
+                
+                if (result.success) {
+                    soundIcon.textContent = 'volume_off';
+                    soundBtn.classList.remove('active');
+                    this.showToast('🔇 System audio capture stopped', 'info', 'volume_off');
+                    console.log('Renderer: System audio capture stopped successfully.');
+                } else {
+                    // Revert state on failure
+                    this.isSystemSoundOn = true;
+                    this.showToast(`❌ Failed to stop audio capture: ${result.message}`, 'error');
+                    console.error('Renderer: Failed to stop system audio capture:', result.message);
+                }
+            }
+        } catch (error) {
+            console.error('Renderer: System sound toggle failed with error:', error);
+            // Revert state on error
+            this.isSystemSoundOn = !this.isSystemSoundOn;
+            this.showToast('❌ System audio toggle failed', 'error');
         }
     }
 
@@ -433,6 +486,20 @@ class MockMateController {
             transcriptionEl.textContent = 'Listening...';
         }
 		transcriptionEl.classList.remove('listening');
+    }
+    
+    handleTranscriptionUpdate(transcription) {
+        console.log('Renderer: Processing transcription update:', transcription);
+        const transcriptionEl = document.getElementById('transcriptionText');
+        
+        if (transcription && transcription.text) {
+            transcriptionEl.textContent = transcription.text;
+            transcriptionEl.classList.add('active');
+            this.currentQuestion = transcription.text;
+            console.log('Renderer: Updated transcription display with text:', transcription.text);
+        } else {
+            console.warn('Renderer: Received empty or invalid transcription:', transcription);
+        }
     }
 
 
@@ -609,29 +676,84 @@ class MockMateController {
             }, 10000);
     }
 
-    // Audio monitoring and debugging methods
+    // Renderer-based audio capture methods
+    async startRendererAudioCapture() {
+        console.log('🎬 RENDERER: startRendererAudioCapture() method called');
+        try {
+            console.log('🎬 RENDERER: Starting real audio capture with AudioCaptureRenderer...');
+            console.log('🎬 RENDERER: Checking if AudioCaptureRenderer is available...');
+            console.log('🎬 RENDERER: window.AudioCaptureRenderer =', typeof window.AudioCaptureRenderer);
+            
+            // Initialize AudioCaptureRenderer if not already done
+            if (!this.audioCaptureRenderer) {
+                console.log('🎬 RENDERER: audioCaptureRenderer not initialized, creating new instance');
+                if (typeof window.AudioCaptureRenderer === 'undefined') {
+                    console.error('🎬 RENDERER: AudioCaptureRenderer not found. Make sure AudioCaptureRenderer.js is loaded.');
+                    console.log('🎬 RENDERER: Available window properties:', Object.keys(window));
+                    this.showToast('❌ AudioCaptureRenderer script not loaded', 'error');
+                    return;
+                }
+                console.log('🎬 RENDERER: Creating new AudioCaptureRenderer instance');
+                this.audioCaptureRenderer = new window.AudioCaptureRenderer();
+                console.log('🎬 RENDERER: AudioCaptureRenderer instance created:', this.audioCaptureRenderer);
+            } else {
+                console.log('🎬 RENDERER: Using existing audioCaptureRenderer instance');
+            }
+            
+            // Set up transcription callback
+            console.log('🎬 RENDERER: Setting up transcription callback');
+            const onTranscription = (transcription) => {
+                console.log('🎬 RENDERER: Received transcription from AudioCaptureRenderer:', transcription);
+                
+                // Send transcription to main process
+                console.log('🎬 RENDERER: Sending transcription to main process via IPC');
+                ipcRenderer.send('transcription-from-renderer', transcription);
+            };
+            
+            // Start audio capture
+            console.log('🎬 RENDERER: Calling startCapture on AudioCaptureRenderer...');
+            const result = await this.audioCaptureRenderer.startCapture(onTranscription);
+            console.log('🎬 RENDERER: startCapture result:', result);
+            
+            if (result.success) {
+                console.log('🎬 RENDERER: Real audio capture started successfully');
+                this.showToast('🎙️ Real-time audio capture started', 'success');
+            } else {
+                console.error('🎬 RENDERER: Failed to start real audio capture:', result.message);
+                this.showToast(`❌ Audio capture failed: ${result.message}`, 'error');
+            }
+            
+        } catch (error) {
+            console.error('🎬 RENDERER: Error starting audio capture:', error);
+            console.error('🎬 RENDERER: Error stack:', error.stack);
+            this.showToast('❌ Audio capture error', 'error');
+        }
+    }
     
-    
-    
-    
-    
-    
-    
-
-    
-
-    
-
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+    async stopRendererAudioCapture() {
+        try {
+            console.log('Renderer: Stopping real audio capture...');
+            
+            if (!this.audioCaptureRenderer) {
+                console.log('Renderer: No audio capture renderer to stop');
+                return;
+            }
+            
+            const result = await this.audioCaptureRenderer.stopCapture();
+            
+            if (result.success) {
+                console.log('Renderer: Real audio capture stopped successfully');
+                this.showToast('🔇 Audio capture stopped', 'info');
+            } else {
+                console.error('Renderer: Failed to stop audio capture:', result.message);
+                this.showToast(`❌ Stop capture failed: ${result.message}`, 'error');
+            }
+            
+        } catch (error) {
+            console.error('Renderer: Error stopping audio capture:', error);
+            this.showToast('❌ Stop capture error', 'error');
+        }
+    }
 }
 
 // Initialize the controller when DOM is loaded
